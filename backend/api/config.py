@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     warmed_account_daily_limit: int = 500
     probation_days: int = 30
     hourly_limit_ratio: float = 0.1
-    contabo_max_per_minute: int = 25
+    # Provider per-minute limit (default 25; adjust for your VPS provider)
+    provider_max_per_minute: int = 25
 
     # Mail / Notifications
     smtp_host: str = ""

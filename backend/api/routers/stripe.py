@@ -95,7 +95,7 @@ async def stripe_webhook(
 
     stripe_event_id = event["id"]
     event_type = event["type"]
-    data_object = event["data"]["object"]
+    data_object = event["data"]["object"].to_dict()
 
     # Idempotency check with state-aware handling
     existing_result = await db.execute(
@@ -145,7 +145,7 @@ async def stripe_webhook(
                 id=uuid.uuid4(),
                 stripe_event_id=stripe_event_id,
                 event_type=event_type,
-                payload=dict(event),
+                payload=event.to_dict(),
                 processing_status=StripeEventStatus.processing,
                 attempt_count=1,
                 last_attempt_at=datetime.now(timezone.utc),

@@ -17,8 +17,8 @@ password = "{{STALWART_ADMIN_PASSWORD}}"
 
 # TLS certificates (Certbot)
 [tls]
-certificate = "/etc/letsencrypt/live/{{DOMAIN}}/fullchain.pem"
-private-key = "/etc/letsencrypt/live/{{DOMAIN}}/privkey.pem"
+certificate = "/etc/letsencrypt/live/mail.{{DOMAIN}}/fullchain.pem"
+private-key = "/etc/letsencrypt/live/mail.{{DOMAIN}}/privkey.pem"
 
 # Listeners
 [smtp]

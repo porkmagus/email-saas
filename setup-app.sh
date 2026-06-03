@@ -46,7 +46,7 @@ hostnamectl set-hostname "$HOSTNAME"
 
 # Install minimal prerequisites
 apt-get update
-apt-get install -y --no-install-recommends git curl ca-certificates
+apt-get install -y --no-install-recommends git curl ca-certificates jq
 
 # Clone or update repo
 if [[ -d "$PROJECT_DIR/.git" ]]; then
@@ -115,6 +115,18 @@ SMTP_USER=
 SMTP_PASSWORD=
 NOTIFICATION_FROM=noreply@$DOMAIN
 SLACK_WEBHOOK_URL=
+ROUNDCUBE_BASE_URL=https://webmail.$DOMAIN
+NEW_ACCOUNT_DAILY_LIMIT=25
+WARMED_ACCOUNT_DAILY_LIMIT=500
+PROBATION_DAYS=30
+HOURLY_LIMIT_RATIO=0.1
+PROVIDER_MAX_PER_MINUTE=25
+BACKUP_S3_ENDPOINT=
+BACKUP_S3_BUCKET=email-saas-backups
+BACKUP_S3_ACCESS_KEY=
+BACKUP_S3_SECRET_KEY=
+BACKUP_RESTIC_PASSWORD=
+BACKUP_RETENTION_DAYS=30
 EOF
     echo "Created $PROJECT_DIR/.env. Edit required production values, then rerun setup."
     exit 1
@@ -126,11 +138,11 @@ source "$PROJECT_DIR/.env"
 set +a
 
 MISSING=()
-if [[ -z "${STRIPE_SECRET_KEY:-}" ]] || [[ "${STRIPE_SECRET_KEY:-}" == sk_test* ]]; then
-    MISSING+=("STRIPE_SECRET_KEY (must be a live key, not test)")
+if [[ -z "${STRIPE_SECRET_KEY:-}" ]]; then
+    MISSING+=("STRIPE_SECRET_KEY")
 fi
-if [[ -z "${STRIPE_WEBHOOK_SECRET:-}" ]] || [[ "${STRIPE_WEBHOOK_SECRET:-}" == whsec_test* ]]; then
-    MISSING+=("STRIPE_WEBHOOK_SECRET (must be a real secret, not whsec_test)")
+if [[ -z "${STRIPE_WEBHOOK_SECRET:-}" ]]; then
+    MISSING+=("STRIPE_WEBHOOK_SECRET")
 fi
 if [[ -z "${STALWART_API_TOKEN:-}" ]]; then
     MISSING+=("STALWART_API_TOKEN")
@@ -182,6 +194,20 @@ docker compose up -d --build
 echo "Waiting for services to start..."
 sleep 15
 
+# Health check loop
+for i in {1..12}; do
+    if curl -fsS http://localhost:8000/api/v1/health >/dev/null 2>&1; then
+        echo "Backend health check passed"
+        break
+    fi
+    echo "Waiting for backend... ($i/12)"
+    sleep 5
+    if [[ $i -eq 12 ]]; then
+        echo "ERROR: Backend failed to start. Check logs: docker compose logs backend"
+        exit 1
+    fi
+done
+
 # Run migrations
 if ! docker compose exec -T backend alembic upgrade head; then
     echo "ERROR: Database migration failed. Aborting setup."
@@ -193,7 +219,7 @@ docker compose exec -T backend python scripts/seed_admin.py || echo "Admin seed 
 
 # Run certbot for SSL certificates
 echo "=== Obtaining SSL certificates via Certbot ==="
-if ! certbot certonly --webroot -w /var/www/letsencrypt -d "$DOMAIN" -d "www.$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"; then
+if ! certbot certonly --webroot -w /var/www/letsencrypt -d "$DOMAIN" -d "www.$DOMAIN" -d "status.$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"; then
     echo "ERROR: Certbot failed. Check DNS and firewall."
     exit 1
 fi
@@ -202,6 +228,60 @@ fi
 echo "=== Installing final HTTPS nginx config ==="
 sed -e "s/{{DOMAIN}}/$DOMAIN/g" "$PROJECT_DIR/infra/nginx/vps1.conf" > /etc/nginx/sites-available/email-saas
 nginx -t && systemctl restart nginx
+
+# Set up logrotate for app logs
+cat > /etc/logrotate.d/email-saas <<'EOF'
+/var/log/email-saas/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 www-data adm
+    sharedscripts
+    postrotate
+        systemctl reload nginx >/dev/null 2>&1 || true
+    endscript
+}
+EOF
+
+# Create a simple update script for future deployments
+cat > /usr/local/bin/update-email-saas <<EOF
+#!/bin/bash
+set -euo pipefail
+# Quick update script for email-saas
+PROJECT_DIR="/opt/email-saas"
+cd "$PROJECT_DIR"
+git pull origin main
+
+cd "$PROJECT_DIR/frontend"
+npm ci
+npm run build
+cp -r "$PROJECT_DIR/frontend/dist/"* /var/www/app/dist/
+
+cd "$PROJECT_DIR"
+docker compose down
+docker compose up -d --build
+
+echo "Waiting for backend..."
+sleep 15
+for i in {1..12}; do
+    if curl -fsS http://localhost:8000/api/v1/health >/dev/null 2>&1; then
+        echo "Backend is healthy"
+        break
+    fi
+    sleep 5
+    if [[ $i -eq 12 ]]; then
+        echo "WARNING: Backend health check failed"
+    fi
+done
+
+docker compose exec -T backend alembic upgrade head
+systemctl restart nginx
+echo "Update complete."
+EOF
+chmod +x /usr/local/bin/update-email-saas
 
 # Print summary
 echo ""
@@ -221,6 +301,9 @@ echo "Next steps:"
 echo "1. Configure WireGuard to VPS-2"
 echo "2. Set up Stripe webhooks"
 echo "3. Add VPS-2 .env STALWART_API_TOKEN if not already done"
+echo ""
+echo "Quick update command:"
+echo "  /usr/local/bin/update-email-saas"
 echo ""
 echo "Documentation:"
 echo "  - $PROJECT_DIR/docs/SETUP.md"

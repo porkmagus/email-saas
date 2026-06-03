@@ -1,6 +1,6 @@
 # Email SaaS
 
-A production-ready email service provider SaaS built on two Contabo VPS instances:
+A production-ready email service provider SaaS built on two Ubuntu VPS instances:
 
 - **VPS-1 (App)** — React frontend, FastAPI backend, PostgreSQL, Redis, Stripe
 - **VPS-2 (Mail)** — Stalwart Mail Server, Roundcube webmail

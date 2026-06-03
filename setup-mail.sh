@@ -47,7 +47,7 @@ hostnamectl set-hostname "$HOSTNAME"
 
 # Install minimal prerequisites
 apt-get update
-apt-get install -y --no-install-recommends git curl ca-certificates
+apt-get install -y --no-install-recommends git curl ca-certificates jq
 
 # Clone or update repo
 if [[ -d "$PROJECT_DIR/.git" ]]; then
@@ -88,6 +88,11 @@ if [[ ! -d "$ROUNDCUBE_DIR" ]]; then
     rm -f roundcube.tar.gz
     chown -R www-data:www-data "$ROUNDCUBE_DIR"
 fi
+
+# Ensure Roundcube writable directories exist
+mkdir -p "$ROUNDCUBE_DIR/logs" "$ROUNDCUBE_DIR/temp" "$ROUNDCUBE_DIR/data"
+chown -R www-data:www-data "$ROUNDCUBE_DIR/logs" "$ROUNDCUBE_DIR/temp" "$ROUNDCUBE_DIR/data"
+chmod 750 "$ROUNDCUBE_DIR/logs" "$ROUNDCUBE_DIR/temp" "$ROUNDCUBE_DIR/data"
 
 # Create Roundcube config from sample
 if [[ ! -f "$ROUNDCUBE_DIR/config/config.inc.php" ]]; then
@@ -139,7 +144,7 @@ systemctl start "$PHP_FPM_SERVICE"
 
 # Run certbot for SSL certificates
 echo "=== Obtaining SSL certificates via Certbot ==="
-if ! certbot certonly --webroot -w /var/www/letsencrypt -d "mail.$DOMAIN" -d "webmail.$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"; then
+if ! certbot certonly --webroot -w /var/www/letsencrypt -d "mail.$DOMAIN" -d "webmail.$DOMAIN" -d "admin-mail.$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"; then
     echo "ERROR: Certbot failed. Check DNS and firewall."
     exit 1
 fi
@@ -154,6 +159,19 @@ sed -e "s/{{DOMAIN}}/$DOMAIN/g" \
     "$PROJECT_DIR/infra/nginx/vps2.conf" > /etc/nginx/sites-available/email-saas
 nginx -t && systemctl restart nginx
 
+# Wait for Stalwart to be ready
+for i in {1..12}; do
+    if curl -fsS -u admin:"$STALWART_ADMIN_PASSWORD" http://localhost:8080/api/health >/dev/null 2>&1; then
+        echo "Stalwart health check passed"
+        break
+    fi
+    echo "Waiting for Stalwart... ($i/12)"
+    sleep 5
+    if [[ $i -eq 12 ]]; then
+        echo "WARNING: Stalwart health check failed. Check: journalctl -u stalwart -f"
+    fi
+done
+
 # Create required directories
 mkdir -p /var/log/email-saas
 mkdir -p /var/log/nginx
@@ -166,6 +184,47 @@ fi
 
 # Blacklist check cron
 (crontab -l 2>/dev/null || true; echo "0 6 * * * /usr/local/bin/blacklist_check.sh >> /var/log/email-saas/blacklist.log 2>&1") | sort -u | crontab -
+
+# Set up logrotate for Stalwart
+cat > /etc/logrotate.d/stalwart <<'EOF'
+/var/log/stalwart/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 stalwart adm
+    sharedscripts
+    postrotate
+        systemctl reload nginx >/dev/null 2>&1 || true
+    endscript
+}
+EOF
+
+# Create a simple update script
+cat > /usr/local/bin/update-email-saas-mail <<EOF
+#!/bin/bash
+set -euo pipefail
+PROJECT_DIR="/opt/email-saas"
+cd "$PROJECT_DIR"
+git pull origin main
+
+# Restart Stalwart
+systemctl restart stalwart
+
+# Restart nginx
+systemctl restart nginx
+
+# Restart PHP-FPM
+PHP_FPM_SERVICE="\$(systemctl list-unit-files 'php*-fpm.service' --no-legend | awk '{print \$1}' | head -n1)"
+if [[ -n "\$PHP_FPM_SERVICE" ]]; then
+    systemctl restart "\$PHP_FPM_SERVICE"
+fi
+
+echo "Mail server update complete."
+EOF
+chmod +x /usr/local/bin/update-email-saas-mail
 
 # Print summary
 echo ""
@@ -190,6 +249,9 @@ echo "   (admin password is stored in /etc/stalwart/stalwart.toml)"
 echo "3. Add API token to VPS-1 .env as STALWART_API_TOKEN"
 echo "4. Configure WireGuard to VPS-1"
 echo "5. Configure DNS MX records pointing to this server"
+echo ""
+echo "Quick update command:"
+echo "  /usr/local/bin/update-email-saas-mail"
 echo ""
 echo "Documentation:"
 echo "  - $PROJECT_DIR/docs/SETUP.md"

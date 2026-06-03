@@ -12,8 +12,7 @@ from api.models import Account, OutboundLimit, OutboundLimitPeriod, AccountStatu
 
 settings = get_settings()
 
-# Contabo limit: ~25 emails per minute
-# New account: 25/day, warmed: 500/day
+# Provider per-minute send limit (default 25; adjust for your VPS provider)
 NEW_ACCOUNT_DAILY_LIMIT = 25
 WARMED_ACCOUNT_DAILY_LIMIT = 500
 PROBATION_DAYS = 30
@@ -75,7 +74,7 @@ async def reserve_send_slot(
         # We can't easily query DB here without a session; use fixed limits for now
         daily_limit = WARMED_ACCOUNT_DAILY_LIMIT
         hourly_limit = int(daily_limit * HOURLY_LIMIT_RATIO)
-        global_minute_limit = settings.contabo_max_per_minute
+        global_minute_limit = settings.provider_max_per_minute
 
         # Use pipeline to increment all counters atomically (best-effort)
         pipe = redis.pipeline()
@@ -184,7 +183,7 @@ async def check_send_allowed(
     if hourly.emails_sent >= hourly.emails_allowed:
         return False, f"Hourly send limit reached ({hourly_limit} emails/hour)"
 
-    # Check Contabo per-minute limit via Redis
+    # Check provider per-minute limit via Redis
     redis = _redis()
     try:
         minute_key = f"send_count:{account_id}:{now.strftime('%Y%m%d%H%M')}"

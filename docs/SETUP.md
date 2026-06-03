@@ -2,10 +2,10 @@
 
 ## Prerequisites
 
-- Two Contabo VPS instances (or equivalent) with Ubuntu 24.04 LTS
+- Two VPS instances (e.g., Hetzner, DigitalOcean, AWS, etc.) with Ubuntu 24.04 LTS
 - A domain name (e.g., `example.com`)
 - Stripe account with API keys
-- S3-compatible storage for backups (Wasabi / Backblaze / Contabo)
+- S3-compatible storage for backups (Wasabi / Backblaze / AWS S3 / etc.)
 
 ## Step-by-Step VPS Setup
 

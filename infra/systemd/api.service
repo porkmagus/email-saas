@@ -1,6 +1,8 @@
 [Unit]
 Description=Email SaaS FastAPI Backend
 After=network.target postgresql.service redis.service
+# NOTE: This service is for non-Docker deployments.
+# The setup-app.sh uses Docker Compose; this file is kept for bare-metal fallback.
 
 [Service]
 Type=simple
