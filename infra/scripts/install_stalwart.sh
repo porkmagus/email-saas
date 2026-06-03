@@ -5,6 +5,7 @@ set -euo pipefail
 # Download and install Stalwart Mail Server 0.16.5 on Ubuntu 24.04
 # Idempotent: will skip if exact version already installed
 # Creates systemd service and pins version
+# Requires DOMAIN and PROJECT_DIR environment variables for config templating
 
 VERSION="0.16.5"
 INSTALL_DIR="/opt/stalwart"
@@ -13,6 +14,13 @@ CONFIG_DIR="/etc/stalwart"
 SERVICE_FILE="/etc/systemd/system/stalwart.service"
 USER="stalwart"
 ARCH="$(uname -m)"
+
+DOMAIN="${DOMAIN:-}"
+MAIL_HOSTNAME="${MAIL_HOSTNAME:-mail.${DOMAIN}}"
+STALWART_ADMIN_PASSWORD="${STALWART_ADMIN_PASSWORD:-}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
 # Map architecture
 if [[ "$ARCH" == "x86_64" ]]; then
@@ -54,22 +62,20 @@ tar -xzf /tmp/stalwart.tar.gz -C "$INSTALL_DIR" --strip-components=1
 chmod +x "$INSTALL_DIR/stalwart"
 rm -f /tmp/stalwart.tar.gz
 
-# Ensure config directory has a minimal config (admin should replace with real config)
+# Ensure config directory has a real config or fail loudly
 if [[ ! -f "$CONFIG_DIR/stalwart.toml" ]]; then
-    cat > "$CONFIG_DIR/stalwart.toml" <<'EOF'
-# Stalwart Mail Server Configuration
-# Replace with your full configuration or provision via API
-[server]
-hostname = "mail.example.com"
-
-[storage]
-store = "rocksdb"
-path = "/var/lib/stalwart"
-
-[directory]
-type = "internal"
-EOF
-    chown "$USER:$USER" "$CONFIG_DIR/stalwart.toml"
+    TEMPLATE_PATH="$PROJECT_DIR/infra/stalwart/stalwart.toml.template"
+    if [[ -f "$TEMPLATE_PATH" ]]; then
+        echo "Installing Stalwart config from template..."
+        sed -e "s/{{DOMAIN}}/$DOMAIN/g" \
+            -e "s/{{MAIL_HOSTNAME}}/$MAIL_HOSTNAME/g" \
+            -e "s/{{STALWART_ADMIN_PASSWORD}}/$STALWART_ADMIN_PASSWORD/g" \
+            "$TEMPLATE_PATH" > "$CONFIG_DIR/stalwart.toml"
+        chown "$USER:$USER" "$CONFIG_DIR/stalwart.toml"
+    else
+        echo "ERROR: Stalwart config template missing. Refusing to start placeholder mail server."
+        exit 1
+    fi
 fi
 
 # Create systemd service

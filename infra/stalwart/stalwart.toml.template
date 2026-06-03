@@ -1,0 +1,46 @@
+# Stalwart Mail Server Configuration
+# Generated from template — review before production use.
+# Version: 0.16.5
+
+[server]
+hostname = "{{MAIL_HOSTNAME}}"
+
+[storage]
+store = "rocksdb"
+path = "/var/lib/stalwart"
+
+[directory]
+type = "internal"
+
+[admin]
+password = "{{STALWART_ADMIN_PASSWORD}}"
+
+# TLS certificates (Certbot)
+[tls]
+certificate = "/etc/letsencrypt/live/{{DOMAIN}}/fullchain.pem"
+private-key = "/etc/letsencrypt/live/{{DOMAIN}}/privkey.pem"
+
+# Listeners
+[smtp]
+port = 25
+
+[smtps]
+port = 465
+
+[submission]
+port = 587
+
+[imap]
+port = 993
+
+[pop3]
+port = 995
+
+# Management API — restricted to localhost and WireGuard
+[api]
+bind = "127.0.0.1:8080"
+
+# Access control for management IPs
+[api.access]
+allow = ["127.0.0.1", "10.0.0.0/24"]
+deny = ["0.0.0.0/0"]

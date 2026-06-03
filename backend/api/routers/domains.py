@@ -46,8 +46,9 @@ async def create_domain(
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.hazmat.backends import default_backend
     import base64
-    import hmac
-    import hashlib
+    import secrets
+    
+    from api.services.crypto import encrypt_text
     
     private_key = rsa.generate_private_key(
         public_exponent=65537,
@@ -69,16 +70,13 @@ async def create_domain(
         serialization.NoEncryption()
     )
     
-    # Encrypt private key with app secret
-    secret_key = settings.api_key_secret or settings.secret_key
-    encrypted_private = hmac.new(secret_key.encode(), private_pem, hashlib.sha256).hexdigest()
+    # Encrypt private key with reversible encryption
+    domain.dkim_private_key_encrypted = encrypt_text(private_pem.decode())
     
     # Generate unique selector with counter to avoid collisions
-    import secrets
     selector = "saas" + datetime.now(timezone.utc).strftime("%Y%m%d") + "a" + secrets.token_hex(2)
     domain.dkim_selector = selector
     domain.dkim_record = f"v=DKIM1; k=rsa; p={public_lines}"
-    domain.dkim_private_key_encrypted = encrypted_private
     # Store private key in Stalwart (simplified: would be via API)
     # For now, store in DB (encrypted in production)
     await db.commit()
@@ -130,6 +128,10 @@ async def rotate_dkim(
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.hazmat.backends import default_backend
+    import secrets
+    
+    from api.services.crypto import encrypt_text
+    
     private_key = rsa.generate_private_key(
         public_exponent=65537,
         key_size=2048,
@@ -141,12 +143,40 @@ async def rotate_dkim(
         serialization.PublicFormat.SubjectPublicKeyInfo
     )
     public_lines = public_pem.decode().replace("-----BEGIN PUBLIC KEY-----", "").replace("-----END PUBLIC KEY-----", "").replace("\n", "")
-    selector = "saas" + datetime.now(timezone.utc).strftime("%Y%m%d")
+    private_pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption()
+    )
+    
+    selector = "saas" + datetime.now(timezone.utc).strftime("%Y%m%d") + secrets.token_hex(4)
     domain.dkim_selector = selector
     domain.dkim_record = f"v=DKIM1; k=rsa; p={public_lines}"
+    domain.dkim_private_key_encrypted = encrypt_text(private_pem.decode())
     domain.dkim_verified = False
     await db.commit()
     await db.refresh(domain)
+    
+    # Push to Stalwart
+    try:
+        from api.services.stalwart_api import configure_dkim
+        await configure_dkim(domain.domain, selector, private_pem.decode(), public_lines)
+    except Exception as e:
+        job = ProvisioningJob(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            type=JobType.add_domain,
+            payload={
+                "domain_id": str(domain.id),
+                "domain": domain.domain,
+                "dkim_selector": selector,
+                "error": str(e),
+            },
+            status=JobStatus.pending,
+        )
+        db.add(job)
+        await db.commit()
+    
     await audit_from_request(
         request, "rotate_dkim", "domain", str(domain.id), account.id, account.id,
         metadata={"selector": selector}

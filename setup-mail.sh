@@ -3,17 +3,18 @@ set -euo pipefail
 
 # setup-mail.sh
 # Pushbutton setup for VPS-2 (Mail Server)
-# Installs: Stalwart Mail Server, Roundcube, PHP 8.4, Nginx, SSL
+# Installs: Stalwart Mail Server, Roundcube, PHP, Nginx, SSL
 # Usage: ./setup-mail.sh
 # Must be run as root on Ubuntu 24.04
 
 LOG_FILE="/var/log/email-saas-mail-setup.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-REPO_URL="https://github.com/your-org/email-saas.git"
+REPO_URL="${REPO_URL:-https://github.com/porkmagus/email-saas.git}"
 PROJECT_DIR="/opt/email-saas"
 HOSTNAME="${HOSTNAME:-vps2-mail}"
 DOMAIN="${DOMAIN:-example.com}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@$DOMAIN}"
 ROUNDCUBE_VERSION="1.7.1"
 ROUNDCUBE_DIR="/var/www/roundcube"
 
@@ -44,29 +45,34 @@ echo "Date: $(date -Iseconds)"
 # Set hostname
 hostnamectl set-hostname "$HOSTNAME"
 
+# Install minimal prerequisites
+apt-get update
+apt-get install -y --no-install-recommends git curl ca-certificates
+
+# Clone or update repo
+if [[ -d "$PROJECT_DIR/.git" ]]; then
+    cd "$PROJECT_DIR"
+    git pull origin main
+elif [[ -d "$PROJECT_DIR" ]]; then
+    echo "ERROR: $PROJECT_DIR exists but is not a git repo. Move it or clone manually."
+    exit 1
+else
+    git clone "$REPO_URL" "$PROJECT_DIR"
+    cd "$PROJECT_DIR"
+fi
+
 # Run base VPS hardening (common to both VPSs)
-# This installs: nginx, ufw, fail2ban, logrotate, certbot, ssh hardening
-# For mail role: also PHP 8.4 FPM
 ROLE=mail DOMAIN="$DOMAIN" bash "$PROJECT_DIR/infra/scripts/setup_vps.sh" || {
     echo "ERROR: VPS hardening failed"
     exit 1
 }
 
-# Clone or update repo
-if [[ -d "$PROJECT_DIR/.git" ]]; then
-    echo "Using existing repo at $PROJECT_DIR"
-    cd "$PROJECT_DIR"
-    git pull origin main || true
-elif [[ -d "$PROJECT_DIR" ]]; then
-    echo "Using existing directory at $PROJECT_DIR (no git)"
-else
-    echo "Cloning repository..."
-    git clone "$REPO_URL" "$PROJECT_DIR"
-    cd "$PROJECT_DIR"
-fi
-
 # Install Stalwart Mail Server
 echo "=== Installing Stalwart Mail Server ==="
+export DOMAIN="$DOMAIN"
+export MAIL_HOSTNAME="mail.${DOMAIN}"
+export STALWART_ADMIN_PASSWORD="${STALWART_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
+export PROJECT_DIR="$PROJECT_DIR"
 bash "$PROJECT_DIR/infra/scripts/install_stalwart.sh"
 
 # Install Roundcube
@@ -113,12 +119,40 @@ EOF
     chown www-data:www-data "$ROUNDCUBE_DIR/config/config.inc.php"
 fi
 
-# Start PHP-FPM
-systemctl enable php8.4-fpm
-systemctl start php8.4-fpm
+# Detect installed PHP-FPM service and socket
+PHP_FPM_SERVICE="$(systemctl list-unit-files 'php*-fpm.service' --no-legend | awk '{print $1}' | head -n1)"
+if [[ -z "$PHP_FPM_SERVICE" ]]; then
+    echo "ERROR: PHP-FPM service not found."
+    exit 1
+fi
+echo "Detected PHP-FPM service: $PHP_FPM_SERVICE"
 
-# Restart nginx to pick up new config
-systemctl restart nginx
+PHP_FPM_SOCK="$(find /run/php -name 'php*-fpm.sock' 2>/dev/null | head -n1)"
+if [[ -z "$PHP_FPM_SOCK" ]]; then
+    echo "ERROR: PHP-FPM socket not found in /run/php."
+    exit 1
+fi
+echo "Detected PHP-FPM socket: $PHP_FPM_SOCK"
+
+systemctl enable "$PHP_FPM_SERVICE"
+systemctl start "$PHP_FPM_SERVICE"
+
+# Run certbot for SSL certificates
+echo "=== Obtaining SSL certificates via Certbot ==="
+if ! certbot certonly --webroot -w /var/www/letsencrypt -d "mail.$DOMAIN" -d "webmail.$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"; then
+    echo "ERROR: Certbot failed. Check DNS and firewall."
+    exit 1
+fi
+
+# Install final HTTPS nginx config
+echo "=== Installing final HTTPS nginx config ==="
+PHP_FPM_SOCK_NAME="${PHP_FPM_SOCK##*/}"
+VPS1_WG_IP="${VPS1_WG_IP:-10.0.0.1}"
+sed -e "s/{{DOMAIN}}/$DOMAIN/g" \
+    -e "s/{{VPS1_WG_IP}}/$VPS1_WG_IP/g" \
+    -e "s/{{PHP_FPM_SOCK}}/$PHP_FPM_SOCK_NAME/g" \
+    "$PROJECT_DIR/infra/nginx/vps2.conf" > /etc/nginx/sites-available/email-saas
+nginx -t && systemctl restart nginx
 
 # Create required directories
 mkdir -p /var/log/email-saas
@@ -145,17 +179,17 @@ echo ""
 echo "Installed services:"
 echo "  Stalwart:   systemctl status stalwart"
 echo "  Nginx:      systemctl status nginx"
-echo "  PHP-FPM:    systemctl status php8.4-fpm"
+echo "  PHP-FPM:    systemctl status $PHP_FPM_SERVICE"
 echo ""
 echo "Roundcube:    $ROUNDCUBE_DIR"
 echo ""
 echo "Next steps:"
-echo "1. Configure /etc/stalwart/stalwart.toml with your domain"
-echo "2. Generate Stalwart API token: curl -u admin:password http://localhost:8080/api/auth/token"
+echo "1. Review /etc/stalwart/stalwart.toml (auto-templated from domain)"
+echo "2. Generate Stalwart API token: curl -u admin:<password> http://localhost:8080/api/auth/token"
+echo "   (admin password is stored in /etc/stalwart/stalwart.toml)"
 echo "3. Add API token to VPS-1 .env as STALWART_API_TOKEN"
 echo "4. Configure WireGuard to VPS-1"
-echo "5. Run certbot for SSL: certbot --nginx -d webmail.$DOMAIN -d mail.$DOMAIN"
-echo "6. Configure DNS MX records pointing to this server"
+echo "5. Configure DNS MX records pointing to this server"
 echo ""
 echo "Documentation:"
 echo "  - $PROJECT_DIR/docs/SETUP.md"

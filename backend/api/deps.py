@@ -12,6 +12,7 @@ from sqlalchemy import select
 from api.config import get_settings
 from api.db import get_db
 from api.models import Account, AccountRole, ApiKey
+from api.services.api_key_crypto import verify_api_key
 
 pwd_context = None
 
@@ -119,7 +120,7 @@ async def get_current_account(
         key = result.scalar_one_or_none()
         if key is None:
             raise credentials_exception
-        if not verify_password(api_key, key.hashed_secret):
+        if not verify_api_key(api_key, key.hashed_secret):
             raise credentials_exception
         # Update last_used_at
         key.last_used_at = datetime.now(timezone.utc)

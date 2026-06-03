@@ -11,10 +11,11 @@ set -euo pipefail
 LOG_FILE="/var/log/email-saas-setup.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-REPO_URL="https://github.com/your-org/email-saas.git"
+REPO_URL="${REPO_URL:-https://github.com/porkmagus/email-saas.git}"
 PROJECT_DIR="/opt/email-saas"
 HOSTNAME="${HOSTNAME:-vps1-app}"
 DOMAIN="${DOMAIN:-example.com}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@$DOMAIN}"
 
 # Detect OS
 if [[ -f /etc/os-release ]]; then
@@ -43,32 +44,32 @@ echo "Date: $(date -Iseconds)"
 # Set hostname
 hostnamectl set-hostname "$HOSTNAME"
 
+# Install minimal prerequisites
+apt-get update
+apt-get install -y --no-install-recommends git curl ca-certificates
+
+# Clone or update repo
+if [[ -d "$PROJECT_DIR/.git" ]]; then
+    cd "$PROJECT_DIR"
+    git pull origin main
+elif [[ -d "$PROJECT_DIR" ]]; then
+    echo "ERROR: $PROJECT_DIR exists but is not a git repo. Move it or clone manually."
+    exit 1
+else
+    git clone "$REPO_URL" "$PROJECT_DIR"
+    cd "$PROJECT_DIR"
+fi
+
 # Run base VPS hardening (common to both VPSs)
-# This installs: nginx, ufw, fail2ban, logrotate, certbot, ssh hardening
-# It does NOT install PostgreSQL, Redis, or Node.js (those run in Docker)
 ROLE=app DOMAIN="$DOMAIN" bash "$PROJECT_DIR/infra/scripts/setup_vps.sh" || {
     echo "ERROR: VPS hardening failed"
     exit 1
 }
 
-# Clone or update repo
-if [[ -d "$PROJECT_DIR/.git" ]]; then
-    echo "Using existing repo at $PROJECT_DIR"
-    cd "$PROJECT_DIR"
-    git pull origin main || true
-elif [[ -d "$PROJECT_DIR" ]]; then
-    echo "Using existing directory at $PROJECT_DIR (no git)"
-else
-    echo "Cloning repository..."
-    git clone "$REPO_URL" "$PROJECT_DIR"
-    cd "$PROJECT_DIR"
-fi
-
 # Install Docker & Docker Compose
 if ! command -v docker &>/dev/null; then
     echo "Installing Docker..."
-    apt-get update
-    apt-get install -y --no-install-recommends ca-certificates curl gnupg lsb-release
+    apt-get install -y --no-install-recommends gnupg lsb-release
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
@@ -86,12 +87,8 @@ fi
 
 # Create .env if missing
 if [[ ! -f "$PROJECT_DIR/.env" ]]; then
-    if [[ -f "$PROJECT_DIR/.env.example" ]]; then
-        cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
-        echo "Created .env from .env.example. Please review and edit it."
-    else
-        echo "WARNING: .env.example not found. Creating minimal .env."
-        cat > "$PROJECT_DIR/.env" <<EOF
+    echo "Creating $PROJECT_DIR/.env with production-required values..."
+    cat > "$PROJECT_DIR/.env" <<EOF
 DATABASE_URL=postgresql+asyncpg://email_saas:email_saas_dev@postgres:5432/email_saas
 REDIS_URL=redis://redis:6379/0
 SECRET_KEY=$(openssl rand -hex 32)
@@ -100,6 +97,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 IMPERSONATE_TOKEN_EXPIRE_MINUTES=15
 ADMIN_2FA_REQUIRED=true
 ENVIRONMENT=production
+DOCS_ENABLED=false
+API_KEY_SECRET=$(openssl rand -hex 32)
 STRIPE_SECRET_KEY=
 STRIPE_PUBLISHABLE_KEY=
 STRIPE_WEBHOOK_SECRET=
@@ -107,10 +106,52 @@ STRIPE_PRICE_ID=
 STALWART_BASE_URL=http://10.0.0.2:8080
 STALWART_API_TOKEN=
 FRONTEND_URL=https://$DOMAIN
+VPS2_PUBLIC_IP=
 FIRST_ADMIN_EMAIL=admin@$DOMAIN
 FIRST_ADMIN_PASSWORD=$(openssl rand -base64 24)
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+NOTIFICATION_FROM=noreply@$DOMAIN
+SLACK_WEBHOOK_URL=
 EOF
-    fi
+    echo "Created $PROJECT_DIR/.env. Edit required production values, then rerun setup."
+    exit 1
+fi
+
+# Validate that critical production values are set
+set -a
+source "$PROJECT_DIR/.env"
+set +a
+
+MISSING=()
+if [[ -z "${STRIPE_SECRET_KEY:-}" ]] || [[ "${STRIPE_SECRET_KEY:-}" == sk_test* ]]; then
+    MISSING+=("STRIPE_SECRET_KEY (must be a live key, not test)")
+fi
+if [[ -z "${STRIPE_WEBHOOK_SECRET:-}" ]] || [[ "${STRIPE_WEBHOOK_SECRET:-}" == whsec_test* ]]; then
+    MISSING+=("STRIPE_WEBHOOK_SECRET (must be a real secret, not whsec_test)")
+fi
+if [[ -z "${STALWART_API_TOKEN:-}" ]]; then
+    MISSING+=("STALWART_API_TOKEN")
+fi
+if [[ -z "${VPS2_PUBLIC_IP:-}" ]] || [[ "${VPS2_PUBLIC_IP:-}" == "1.2.3.4" ]]; then
+    MISSING+=("VPS2_PUBLIC_IP")
+fi
+if [[ -z "${SECRET_KEY:-}" ]] || [[ "${#SECRET_KEY}" -lt 32 ]]; then
+    MISSING+=("SECRET_KEY (must be >= 32 chars)")
+fi
+if [[ -z "${API_KEY_SECRET:-}" ]]; then
+    MISSING+=("API_KEY_SECRET")
+fi
+
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+    echo "ERROR: Missing or invalid required production values in .env:"
+    for key in "${MISSING[@]}"; do
+        echo "  - $key"
+    done
+    echo "Edit $PROJECT_DIR/.env and rerun setup."
+    exit 1
 fi
 
 # Build frontend on host (nginx will serve static files)
@@ -142,13 +183,25 @@ echo "Waiting for services to start..."
 sleep 15
 
 # Run migrations
-docker compose exec -T backend alembic upgrade head || echo "Migration failed (may need manual intervention)"
+if ! docker compose exec -T backend alembic upgrade head; then
+    echo "ERROR: Database migration failed. Aborting setup."
+    exit 1
+fi
 
 # Seed admin
 docker compose exec -T backend python scripts/seed_admin.py || echo "Admin seed failed (may already exist)"
 
-# Restart nginx to pick up new config
-systemctl restart nginx
+# Run certbot for SSL certificates
+echo "=== Obtaining SSL certificates via Certbot ==="
+if ! certbot certonly --webroot -w /var/www/letsencrypt -d "$DOMAIN" -d "www.$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL"; then
+    echo "ERROR: Certbot failed. Check DNS and firewall."
+    exit 1
+fi
+
+# Install final HTTPS nginx config
+echo "=== Installing final HTTPS nginx config ==="
+sed -e "s/{{DOMAIN}}/$DOMAIN/g" "$PROJECT_DIR/infra/nginx/vps1.conf" > /etc/nginx/sites-available/email-saas
+nginx -t && systemctl restart nginx
 
 # Print summary
 echo ""
@@ -165,10 +218,9 @@ echo "  API:      https://$DOMAIN/api/v1"
 echo "  Health:   https://$DOMAIN/api/v1/health"
 echo ""
 echo "Next steps:"
-echo "1. Edit $PROJECT_DIR/.env with real values (Stripe keys, Stalwart token)"
-echo "2. Configure WireGuard to VPS-2"
-echo "3. Run certbot for SSL certificates: certbot --nginx -d $DOMAIN -d www.$DOMAIN -d status.$DOMAIN"
-echo "4. Set up Stripe webhooks"
+echo "1. Configure WireGuard to VPS-2"
+echo "2. Set up Stripe webhooks"
+echo "3. Add VPS-2 .env STALWART_API_TOKEN if not already done"
 echo ""
 echo "Documentation:"
 echo "  - $PROJECT_DIR/docs/SETUP.md"

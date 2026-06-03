@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import select, update
@@ -201,7 +202,12 @@ async def totp_setup(
     return {"secret": secret, "uri": uri}
 
 
-@router.post("/totp/verify", response_model=MessageOut)
+class TOTPVerifyOut(BaseModel):
+    message: str
+    recovery_codes: list[str]
+
+
+@router.post("/totp/verify", response_model=TOTPVerifyOut)
 async def totp_verify(
     request: Request,
     data: TOTPVerify,
@@ -229,12 +235,13 @@ async def totp_verify(
     return {"message": "TOTP enabled", "recovery_codes": raw_codes}  # Displayed once
 
 
-@router.post("/totp/recovery", response_model=UserOut)
+@router.post("/totp/recovery")
 @limiter.limit("3/minute")
 async def totp_recovery(
     request: Request,
     data: TOTPRecoveryRequest,
     db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
 ):
     result = await db.execute(select(Account).where(Account.email == data.email))
     account = result.scalar_one_or_none()
@@ -251,9 +258,18 @@ async def totp_recovery(
     # Remove used recovery code
     account.recovery_codes = [c for c in account.recovery_codes if c != provided_hash]
     await db.commit()
-    token = create_access_token({"sub": str(account.id), "email": account.email})
+    token = create_access_token({"sub": str(account.id)})
+    await redis.setex(
+        f"session:{account.id}:access",
+        settings.access_token_expire_minutes * 60,
+        "active",
+    )
     await audit_from_request(request, "totp_recovery", "account", str(account.id), account.id, account.id)
-    return {"id": account.id, "email": account.email, "token": token, "role": account.role, "plan": account.plan, "status": account.status}
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "account": UserOut.model_validate(account),
+    }
 
 
 @router.post("/totp/regenerate-codes", response_model=MessageOut)

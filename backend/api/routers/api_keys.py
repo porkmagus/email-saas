@@ -1,5 +1,3 @@
-import hmac
-import hashlib
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -8,25 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.config import get_settings
 from api.db import get_db
 from api.deps import get_current_active_account
 from api.models import Account, ApiKey
 from api.schemas import ApiKeyCreate, ApiKeyOut, ApiKeyWithSecret, MessageOut
 from api.services.audit import audit_from_request
+from api.services.api_key_crypto import hash_api_key
 
 router = APIRouter()
-settings = get_settings()
-
-
-def hash_api_key(raw: str) -> str:
-    """Hash API key using HMAC-SHA256 with server secret."""
-    secret = settings.api_key_secret or settings.secret_key
-    return hmac.new(secret.encode(), raw.encode(), hashlib.sha256).hexdigest()
-
-
-def verify_api_key(raw: str, hashed: str) -> bool:
-    return hmac.compare_digest(hash_api_key(raw), hashed)
 
 
 @router.post("", response_model=ApiKeyWithSecret)

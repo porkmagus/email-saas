@@ -133,4 +133,7 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    return {"message": "Email SaaS API", "version": "1.0.0", "docs": "/docs"}
+    payload = {"message": "Email SaaS API", "version": "1.0.0"}
+    if settings.docs_enabled:
+        payload["docs"] = "/docs"
+    return payload

@@ -160,7 +160,7 @@ async def enforce_abuse_action(
     - Yellow: Reduce send limits (handled by check_send_allowed)
     """
     from api.models import Account, AccountStatus
-    from api.services.audit import audit_log
+    from api.services.audit import log_audit
     
     result = await db.execute(
         select(Account).where(Account.id == account_id)
@@ -173,7 +173,7 @@ async def enforce_abuse_action(
         if account.status != AccountStatus.suspended:
             account.status = AccountStatus.suspended
             await db.commit()
-            await audit_log(
+            await log_audit(
                 "abuse_auto_suspend",
                 "account",
                 str(account_id),
@@ -192,7 +192,7 @@ async def enforce_abuse_action(
     elif score.status == AbuseScoreStatus.orange:
         # Hold outbound mail but don't suspend
         if account.status == AccountStatus.active:
-            await audit_log(
+            await log_audit(
                 "abuse_hold",
                 "account",
                 str(account_id),
@@ -208,10 +208,17 @@ async def enforce_abuse_action(
             )
 
 
+import logging
+import httpx
+
+from api.config import get_settings
+
+logger = logging.getLogger(__name__)
+
 async def notify_admin(message: str) -> None:
-    """Send admin notification via email or webhook.
-    In production: integrate with SMTP, Slack, PagerDuty.
-    """
-    # Placeholder: log to console for now
-    # Real implementation: send to admin email, Slack webhook
-    print(f"[ADMIN ALERT] {message}")
+    settings = get_settings()
+    if settings.slack_webhook_url:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(settings.slack_webhook_url, json={"text": message})
+    else:
+        logger.warning("ADMIN ALERT: %s", message)

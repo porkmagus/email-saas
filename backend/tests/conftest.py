@@ -12,6 +12,7 @@ from api.main import app
 from api.db import Base, get_db
 from api.models import Account, AccountRole, AccountStatus, Domain, Mailbox, Ticket, TicketStatus, TicketPriority, TicketCategory
 from api.deps import hash_password, create_access_token, get_redis
+from api.services import send_throttle as _st
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -27,9 +28,50 @@ class FakeRedis:
         self._data.pop(key, None)
     async def ping(self):
         return True
+    async def incr(self, key):
+        val = self._data.get(key, 0)
+        if not isinstance(val, int):
+            val = int(val)
+        val += 1
+        self._data[key] = val
+        return val
+    async def expire(self, key, seconds):
+        return True
+    def pipeline(self):
+        return FakePipeline(self)
+    async def aclose(self):
+        pass
+    def flushall(self):
+        self._data.clear()
+
+class FakePipeline:
+    def __init__(self, redis):
+        self._redis = redis
+        self._commands = []
+    def incr(self, key):
+        self._commands.append(("incr", key))
+        return self
+    def expire(self, key, seconds):
+        self._commands.append(("expire", key, seconds))
+        return self
+    async def execute(self):
+        results = []
+        for cmd in self._commands:
+            if cmd[0] == "incr":
+                results.append(await self._redis.incr(cmd[1]))
+            elif cmd[0] == "expire":
+                results.append(await self._redis.expire(cmd[1], cmd[2]))
+        self._commands = []
+        return results
 
 async def override_get_redis():
     return FakeRedis()
+
+# Patch send_throttle to use a shared FakeRedis instance in tests
+_fake_redis_instance = FakeRedis()
+def _fake_redis():
+    return _fake_redis_instance
+_st._redis = _fake_redis
 
 
 engine = create_async_engine(TEST_DATABASE_URL, echo=False, future=True)
@@ -50,6 +92,7 @@ app.dependency_overrides[get_redis] = override_get_redis
 
 @pytest_asyncio.fixture(scope="function")
 async def _db_engine():
+    _fake_redis_instance.flushall()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine

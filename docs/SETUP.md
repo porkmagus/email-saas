@@ -23,14 +23,14 @@ ssh-copy-id root@vps2-ip
 # On VPS-1 (App Server)
 ssh root@vps1-ip
 cd /opt
-git clone https://github.com/your-org/email-saas.git
+git clone https://github.com/porkmagus/email-saas.git
 cd email-saas
 HOSTNAME=vps1-app DOMAIN=example.com ./setup-app.sh
 
 # On VPS-2 (Mail Server)
 ssh root@vps2-ip
 cd /opt
-git clone https://github.com/your-org/email-saas.git
+git clone https://github.com/porkmagus/email-saas.git
 cd email-saas
 HOSTNAME=vps2-mail DOMAIN=example.com ./setup-mail.sh
 ```

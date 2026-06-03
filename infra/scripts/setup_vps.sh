@@ -4,6 +4,7 @@ set -euo pipefail
 # setup_vps.sh
 # Pushbutton Ubuntu 24.04 hardening and setup
 # Run as root. Idempotent where possible.
+# NOTE: Does NOT install Stalwart or Docker (role-specific scripts handle those).
 
 LOG_FILE="/var/log/setup_vps.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -42,7 +43,8 @@ if [[ "$ROLE" == "app" ]]; then
     # PostgreSQL, Redis, and Node.js run inside Docker containers
     PACKAGES="$PACKAGES nginx"
 elif [[ "$ROLE" == "mail" ]]; then
-    PACKAGES="$PACKAGES nginx php8.4-fpm php8.4-cli php8.4-curl php8.4-gd php8.4-imap php8.4-intl php8.4-mbstring php8.4-mysql php8.4-xml php8.4-zip php8.4-pspell"
+    # Use default PHP packages provided by Ubuntu 24.04 (not hardcoded 8.4)
+    PACKAGES="$PACKAGES nginx php-fpm php-cli php-curl php-gd php-imap php-intl php-mbstring php-mysql php-xml php-zip php-pspell"
 fi
 
 apt-get install -y --no-install-recommends $PACKAGES
@@ -146,14 +148,9 @@ if [[ -f /etc/ssh/sshd_config ]]; then
     systemctl restart sshd
 fi
 
-# Install Stalwart on mail VPS
-if [[ "$ROLE" == "mail" ]]; then
-    echo "=== Installing Stalwart Mail Server ==="
-    bash "$SCRIPT_DIR/install_stalwart.sh"
-fi
-
 # Create application directories
 mkdir -p /var/www/app/dist
+mkdir -p /var/www/letsencrypt
 mkdir -p /var/log/email-saas
 mkdir -p /opt/email-saas
 mkdir -p /backups/postgresql
@@ -161,25 +158,42 @@ mkdir -p /backups/postgresql
 # Create service user for API (used by Docker containers)
 id -u email-saas &>/dev/null || useradd -r -s /bin/false -d /opt/email-saas email-saas
 
-# Copy nginx config (with template substitution for app role)
-if [[ "$ROLE" == "app" && -f "$PROJECT_ROOT/infra/nginx/vps1.conf" ]]; then
-    # Substitute template variables
-    DOMAIN="${DOMAIN:-example.com}"
-    sed -e "s/{{DOMAIN}}/$DOMAIN/g" "$PROJECT_ROOT/infra/nginx/vps1.conf" > /etc/nginx/sites-available/email-saas
+# Install temporary HTTP-only nginx bootstrap config for Certbot
+DOMAIN="${DOMAIN:-example.com}"
+if [[ "$ROLE" == "app" ]]; then
+    cat > /etc/nginx/sites-available/email-saas <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $DOMAIN www.$DOMAIN;
+    root /var/www/app/dist;
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+}
+EOF
+    ln -sf /etc/nginx/sites-available/email-saas /etc/nginx/sites-enabled/email-saas
+    rm -f /etc/nginx/sites-enabled/default
+elif [[ "$ROLE" == "mail" ]]; then
+    cat > /etc/nginx/sites-available/email-saas <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name mail.$DOMAIN webmail.$DOMAIN;
+    root /var/www/letsencrypt;
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+}
+EOF
     ln -sf /etc/nginx/sites-available/email-saas /etc/nginx/sites-enabled/email-saas
     rm -f /etc/nginx/sites-enabled/default
 fi
 
-if [[ "$ROLE" == "mail" && -f "$PROJECT_ROOT/infra/nginx/vps2.conf" ]]; then
-    # Substitute template variables
-    DOMAIN="${DOMAIN:-example.com}"
-    VPS1_WG_IP="${VPS1_WG_IP:-10.0.0.1}"
-    sed -e "s/{{DOMAIN}}/$DOMAIN/g" -e "s/{{VPS1_WG_IP}}/$VPS1_WG_IP/g" "$PROJECT_ROOT/infra/nginx/vps2.conf" > /etc/nginx/sites-available/email-saas
-    ln -sf /etc/nginx/sites-available/email-saas /etc/nginx/sites-enabled/email-saas
-    rm -f /etc/nginx/sites-enabled/default
-fi
-
-# Test nginx
+# Test and restart nginx with bootstrap config
 nginx -t && systemctl restart nginx && systemctl enable nginx
 
 # Install cron scripts
@@ -188,7 +202,7 @@ if [[ -d "$PROJECT_ROOT/infra/cron" ]]; then
     chmod +x /usr/local/bin/*.sh
 fi
 
-# Daily backup cron
+# Daily backup cron (app VPS)
 if [[ "$ROLE" == "app" ]]; then
     (crontab -l 2>/dev/null || true; echo "0 3 * * * /usr/local/bin/daily_backups.sh >> /var/log/email-saas/backup.log 2>&1") | sort -u | crontab -
 fi
@@ -209,8 +223,7 @@ echo "=== VPS Setup Complete ==="
 echo "Role: $ROLE"
 echo "Review $LOG_FILE for details."
 echo "Next steps:"
-echo "1. Configure .env on VPS-1"
-echo "2. Set up WireGuard between VPSs"
-echo "3. Run certbot for SSL"
-echo "4. Deploy application code"
-echo "5. Seed admin account"
+echo "1. Run certbot for SSL certificates"
+echo "2. Install final nginx HTTPS config"
+echo "3. Configure .env on VPS-1"
+echo "4. Set up WireGuard between VPSs"

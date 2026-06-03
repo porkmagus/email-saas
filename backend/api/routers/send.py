@@ -5,14 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, EmailStr
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db import get_db
 from api.deps import get_current_active_account
-from api.models import Account, Mailbox
+from api.models import Account, Domain, Mailbox
 from api.schemas import MessageOut
-from api.services.send_throttle import check_send_allowed, record_send
-from api.services.abuse_scoring import check_abuse_status
+from api.services.send_throttle import reserve_send_slot, record_send_event
+from api.services.abuse_scoring import calculate_abuse_score, enforce_abuse_action
 from api.services.audit import audit_from_request
 
 
@@ -39,11 +40,6 @@ async def send_email(
     account: Account = Depends(get_current_active_account),
 ):
     """Send an email through the service. Throttled and abuse-checked."""
-    # Check abuse status first
-    allowed, reason = await check_abuse_status(db, account.id)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=reason)
-
     # Resolve sender mailbox
     domain_id = None
     mailbox_id = None
@@ -65,12 +61,28 @@ async def send_email(
             select(Mailbox).where(Mailbox.account_id == account.id).limit(1)
         )
         mailbox = result.scalar_one_or_none()
-        if mailbox:
-            mailbox_id = mailbox.id
-            domain_id = mailbox.domain_id
 
-    # Check send limits
-    allowed, reason = await check_send_allowed(db, account.id, domain_id=domain_id, mailbox_id=mailbox_id)
+    if not mailbox:
+        raise HTTPException(status_code=400, detail="No sender mailbox available")
+
+    # Explicit domain lookup
+    domain_result = await db.execute(
+        select(Domain).where(
+            Domain.id == mailbox.domain_id,
+            Domain.account_id == account.id,
+        )
+    )
+    sender_domain = domain_result.scalar_one_or_none()
+    if not sender_domain:
+        raise HTTPException(status_code=400, detail="Sender domain not found")
+    from_address = f"{mailbox.local_part}@{sender_domain.domain}"
+
+    # Atomic send reservation
+    allowed, reason = await reserve_send_slot(
+        account_id=account.id,
+        domain_id=domain_id,
+        mailbox_id=mailbox_id,
+    )
     if not allowed:
         raise HTTPException(status_code=429, detail=reason)
 
@@ -78,15 +90,27 @@ async def send_email(
     try:
         from api.services.stalwart_api import queue_message
         await queue_message(
-            from_address=f"{mailbox.local_part}@{mailbox.domain.domain}" if mailbox else account.email,
+            from_address=from_address,
             to_addresses=[str(addr) for addr in data.to],
             subject=data.subject,
             text_body=data.text_body or data.body,
             html_body=data.html_body,
         )
-        await record_send(db, account.id, domain_id=domain_id, mailbox_id=mailbox_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to queue message: {e}")
+
+    # Record send events
+    await record_send_event(
+        db=db,
+        account_id=account.id,
+        recipients=[str(addr) for addr in data.to],
+        domain_id=domain_id,
+        mailbox_id=mailbox_id,
+    )
+
+    # Recalculate and enforce abuse score
+    score = await calculate_abuse_score(db, account.id)
+    await enforce_abuse_action(db, account.id, score)
 
     await audit_from_request(
         request,
