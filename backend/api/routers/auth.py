@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -20,7 +20,7 @@ from api.deps import (
     verify_password,
     maybe_account,
 )
-from api.models import Account, AccountRole, AccountStatus, PlanTier
+from api.models import Account, AccountRole, AccountStatus, PlanTier, WebmailToken
 from api.schemas import (
     ErrorOut,
     MessageOut,
@@ -35,6 +35,9 @@ from api.schemas import (
     UserLogin,
     UserOut,
     UserProfileUpdate,
+    WebmailSSOIn,
+    WebmailSSOOut,
+    WebmailTokenOut,
 )
 from api.services.audit import audit_from_request
 
@@ -346,3 +349,53 @@ async def reset_password_confirm(
     await db.commit()
     await audit_from_request(request, "reset_password", "account", str(account.id), account.id, account.id)
     return {"message": "Password reset successfully"}
+
+
+@router.get("/webmail-token", response_model=WebmailTokenOut)
+async def webmail_token(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    account: Account = Depends(get_current_active_account),
+):
+    import secrets
+    token_value = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    webmail_token = WebmailToken(
+        id=uuid.uuid4(),
+        account_id=account.id,
+        token=token_value,
+        expires_at=expires_at,
+        used=False,
+    )
+    db.add(webmail_token)
+    await db.commit()
+    await audit_from_request(
+        request, "webmail_token_created", "webmail_token", str(webmail_token.id), account.id, account.id
+    )
+    sso_url = f"{settings.roundcube_base_url}/sso?token={token_value}"
+    return {"token": token_value, "url": sso_url}
+
+
+@router.post("/webmail-sso", response_model=WebmailSSOOut)
+async def webmail_sso(
+    data: WebmailSSOIn,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(WebmailToken)
+        .where(
+            WebmailToken.token == data.token,
+            WebmailToken.used == False,
+            WebmailToken.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    webmail_token = result.scalar_one_or_none()
+    if not webmail_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    webmail_token.used = True
+    await db.commit()
+    result = await db.execute(select(Account).where(Account.id == webmail_token.account_id))
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=400, detail="Account not found")
+    return {"email": account.email, "password_hash": account.password_hash}

@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import {
   BarChart3,
   Users,
@@ -10,6 +11,8 @@ import {
   LogOut,
   Menu,
   X,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -23,6 +26,7 @@ const adminNavItems = [
 
 export default function AdminSidebar() {
   const { logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
@@ -46,9 +50,19 @@ export default function AdminSidebar() {
       >
         <div className="flex items-center justify-between px-4 py-4 border-b border-border">
           <span className="font-semibold text-lg">Admin Panel</span>
-          <button className="lg:hidden" onClick={() => setMobileOpen(false)}>
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              className="p-1.5 rounded-md hover:bg-surface-alt transition-colors"
+              aria-label="Toggle theme"
+              title="Toggle theme"
+            >
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button className="lg:hidden" onClick={() => setMobileOpen(false)}>
+              <X size={20} />
+            </button>
+          </div>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
           {adminNavItems.map((item) => (

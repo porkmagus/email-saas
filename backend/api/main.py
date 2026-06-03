@@ -1,4 +1,5 @@
 import time
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
@@ -14,7 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.config import get_settings
 from api.db import engine, get_db
 from api.deps import get_redis
-from api.routers import auth, stripe, domains, mailboxes, admin, tickets, api_keys, send
+from api.routers import (
+    auth, stripe, domains, mailboxes, admin, tickets, api_keys, send,
+    aliases, blocked_senders, catchall, contacts, email_rules, vacation_response,
+    app_passwords, files, login_logs, notes, outbox, passkeys, sessions, snooze,
+    calendar, search, import_jobs, export_jobs,
+)
 from api.services.audit import audit_from_request
 from api.models import AuditLog, ActorType
 
@@ -108,6 +114,24 @@ app.include_router(send.router, prefix="/api/v1/send", tags=["send"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(tickets.router, prefix="/api/v1/tickets", tags=["tickets"])
 app.include_router(api_keys.router, prefix="/api/v1/api-keys", tags=["api_keys"])
+app.include_router(aliases.router, prefix="/api/v1/aliases", tags=["aliases"])
+app.include_router(blocked_senders.router, prefix="/api/v1/blocked-senders", tags=["blocked_senders"])
+app.include_router(catchall.router, prefix="/api/v1/catch-all", tags=["catch_all"])
+app.include_router(contacts.router, prefix="/api/v1/contacts", tags=["contacts"])
+app.include_router(email_rules.router, prefix="/api/v1/email-rules", tags=["email_rules"])
+app.include_router(vacation_response.router, prefix="/api/v1/vacation-response", tags=["vacation_response"])
+app.include_router(app_passwords.router, prefix="/api/v1/app-passwords", tags=["app_passwords"])
+app.include_router(files.router, prefix="/api/v1/files", tags=["files"])
+app.include_router(login_logs.router, prefix="/api/v1/login-logs", tags=["login_logs"])
+app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
+app.include_router(outbox.router, prefix="/api/v1/outbox", tags=["outbox"])
+app.include_router(snooze.router, prefix="/api/v1/snooze", tags=["snooze"])
+app.include_router(passkeys.router, prefix="/api/v1/passkeys", tags=["passkeys"])
+app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
+app.include_router(calendar.router, prefix="/api/v1/calendar", tags=["calendar"])
+app.include_router(search.router, prefix="/api/v1/search", tags=["search"])
+app.include_router(import_jobs.router, prefix="/api/v1/import", tags=["import"])
+app.include_router(export_jobs.router, prefix="/api/v1/export", tags=["export"])
 
 
 @app.get("/api/v1/health", response_model=dict)

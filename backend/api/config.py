@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     notification_from: str = "noreply@example.com"
     slack_webhook_url: str = ""
 
+    # Roundcube SSO
+    roundcube_base_url: str = "https://webmail.example.com"
+
 
 @lru_cache
 def get_settings() -> Settings:

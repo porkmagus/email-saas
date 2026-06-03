@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useToast } from "../context/ToastContext";
 import Loading from "../components/Loading";
-import { Mail, Globe, ExternalLink, Copy, Server, Shield, Smartphone } from "lucide-react";
+import WebmailSSO from "../components/WebmailSSO";
+import { Mail, Copy, Server, Shield, Smartphone } from "lucide-react";
 
 interface DomainSetup {
   id: string;
@@ -62,36 +63,8 @@ export default function MailSetupPage() {
         <p className="text-sm text-muted">Connect your email client or use webmail.</p>
       </div>
 
-      {/* Webmail Section */}
-      <div className="card p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Globe size={20} className="text-accent" />
-          <h2 className="font-semibold">Webmail Access</h2>
-        </div>
-        {verifiedDomains.length === 0 ? (
-          <p className="text-sm text-muted">Verify a domain first to access webmail.</p>
-        ) : (
-          <div className="space-y-3">
-            {verifiedDomains.map((d) => (
-              <div key={d.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-surface-alt transition-colors">
-                <div>
-                  <div className="font-medium text-sm">{d.domain}</div>
-                  <div className="text-xs text-muted">Roundcube webmail</div>
-                </div>
-                <a
-                  href={d.webmail_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-primary text-sm flex items-center gap-2"
-                >
-                  <ExternalLink size={14} />
-                  Open Webmail
-                </a>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Webmail SSO Section */}
+      <WebmailSSO />
 
       {/* IMAP/SMTP Settings */}
       <div className="card p-6">

@@ -16,6 +16,9 @@ import {
   ChevronDown,
   ChevronUp,
   BookOpen,
+  Inbox,
+  X,
+  Save,
 } from "lucide-react";
 
 interface Domain {
@@ -29,6 +32,13 @@ interface Domain {
   mx_record: string | null;
   spf_record: string | null;
   dkim_record: string | null;
+  catch_all_target_mailbox_id: string | null;
+}
+
+interface MailboxOption {
+  id: string;
+  local_part: string;
+  domain: string;
 }
 
 interface OnboardingData {
@@ -43,6 +53,7 @@ interface OnboardingData {
 export default function DomainsPage() {
   const { addToast } = useToast();
   const [domains, setDomains] = useState<Domain[]>([]);
+  const [mailboxes, setMailboxes] = useState<MailboxOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [newDomain, setNewDomain] = useState("");
@@ -50,12 +61,19 @@ export default function DomainsPage() {
   const [onboarding, setOnboarding] = useState<OnboardingData | null>(null);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [editingCatchAllId, setEditingCatchAllId] = useState<string | null>(null);
+  const [catchAllTarget, setCatchAllTarget] = useState<string>("");
+  const [catchAllSaving, setCatchAllSaving] = useState(false);
 
   const loadDomains = async () => {
     setLoading(true);
     try {
-      const res = await api.get<Domain[]>("/domains");
-      setDomains(res.data);
+      const [dRes, mRes] = await Promise.all([
+        api.get<Domain[]>("/domains"),
+        api.get<MailboxOption[]>("/mailboxes"),
+      ]);
+      setDomains(dRes.data);
+      setMailboxes(mRes.data.map((m) => ({ id: m.id, local_part: m.local_part, domain: m.domain || "" })));
     } catch (err: any) {
       addToast(err?.response?.data?.detail || "Failed to load domains", "error");
     } finally {
@@ -90,6 +108,33 @@ export default function DomainsPage() {
       await loadDomains();
     } catch (err: any) {
       addToast(err?.response?.data?.detail || "Failed to delete domain", "error");
+    }
+  };
+
+  const handleSetCatchAll = async (domainId: string) => {
+    if (!catchAllTarget) return;
+    setCatchAllSaving(true);
+    try {
+      const res = await api.post<Domain>(`/domains/${domainId}/catch-all`, { target_mailbox_id: catchAllTarget });
+      setDomains((prev) => prev.map((d) => (d.id === domainId ? res.data : d)));
+      addToast("Catch-all set", "success");
+      setEditingCatchAllId(null);
+    } catch (err: any) {
+      addToast(err?.response?.data?.detail || "Failed to set catch-all", "error");
+    } finally {
+      setCatchAllSaving(false);
+    }
+  };
+
+  const handleClearCatchAll = async (domainId: string) => {
+    try {
+      const res = await api.delete<Domain>(`/domains/${domainId}/catch-all`);
+      setDomains((prev) => prev.map((d) => (d.id === domainId ? res.data : d)));
+      addToast("Catch-all cleared", "success");
+      setEditingCatchAllId(null);
+      setCatchAllTarget("");
+    } catch (err: any) {
+      addToast(err?.response?.data?.detail || "Failed to clear catch-all", "error");
     }
   };
 
@@ -211,6 +256,72 @@ export default function DomainsPage() {
                   <Trash2 size={14} />
                 </button>
               </div>
+            </div>
+
+            {/* Catch-all */}
+            <div className="mt-3 border-t border-border pt-3">
+              {editingCatchAllId === d.id ? (
+                <div className="flex items-center gap-2">
+                  <Inbox size={14} className="text-muted" />
+                  <select
+                    className="input text-xs py-1 flex-1"
+                    value={catchAllTarget}
+                    onChange={(e) => setCatchAllTarget(e.target.value)}
+                  >
+                    <option value="">Select mailbox</option>
+                    {mailboxes.map((mb) => (
+                      <option key={mb.id} value={mb.id}>
+                        {mb.local_part}@{mb.domain}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn-success text-xs flex items-center gap-1"
+                    disabled={!catchAllTarget || catchAllSaving}
+                    onClick={() => handleSetCatchAll(d.id)}
+                  >
+                    {catchAllSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                    Save
+                  </button>
+                  <button
+                    className="btn-secondary text-xs flex items-center gap-1"
+                    onClick={() => { setEditingCatchAllId(null); setCatchAllTarget(""); }}
+                  >
+                    <X size={12} /> Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Inbox size={14} className="text-muted" />
+                  <span className="text-xs text-muted">
+                    Catch-all: {d.catch_all_target_mailbox_id ? (
+                      <span className="text-success">
+                        {mailboxes.find((m) => m.id === d.catch_all_target_mailbox_id)?.local_part}@
+                        {mailboxes.find((m) => m.id === d.catch_all_target_mailbox_id)?.domain || "unknown"}
+                      </span>
+                    ) : (
+                      <span className="text-danger">Disabled</span>
+                    )}
+                  </span>
+                  <button
+                    className="text-xs text-accent hover:underline ml-auto"
+                    onClick={() => {
+                      setEditingCatchAllId(d.id);
+                      setCatchAllTarget(d.catch_all_target_mailbox_id || "");
+                    }}
+                  >
+                    {d.catch_all_target_mailbox_id ? "Change" : "Enable"}
+                  </button>
+                  {d.catch_all_target_mailbox_id && (
+                    <button
+                      className="text-xs text-danger hover:underline"
+                      onClick={() => handleClearCatchAll(d.id)}
+                    >
+                      Disable
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {expandedId === d.id && (

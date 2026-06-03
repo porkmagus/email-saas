@@ -131,6 +131,7 @@ class Account(Base):
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recovery_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sieve_script: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
@@ -160,6 +161,63 @@ class Account(Base):
     metering_events: Mapped[list["MeteringEvent"]] = relationship(
         "MeteringEvent", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
     )
+    aliases: Mapped[list["Alias"]] = relationship(
+        "Alias", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    blocked_senders: Mapped[list["BlockedSender"]] = relationship(
+        "BlockedSender", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    email_rules: Mapped[list["EmailRule"]] = relationship(
+        "EmailRule", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    vacation_response: Mapped["VacationResponse | None"] = relationship(
+        "VacationResponse", back_populates="account", lazy="selectin", cascade="all, delete-orphan", uselist=False
+    )
+    contacts: Mapped[list["Contact"]] = relationship(
+        "Contact", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    contact_groups: Mapped[list["ContactGroup"]] = relationship(
+        "ContactGroup", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    files: Mapped[list["File"]] = relationship(
+        "File", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    notes: Mapped[list["Note"]] = relationship(
+        "Note", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    outbox_messages: Mapped[list["OutboxMessage"]] = relationship(
+        "OutboxMessage", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    snoozes: Mapped[list["Snooze"]] = relationship(
+        "Snooze", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    passkeys: Mapped[list["Passkey"]] = relationship(
+        "Passkey", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    app_passwords: Mapped[list["AppPassword"]] = relationship(
+        "AppPassword", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    login_logs: Mapped[list["LoginLog"]] = relationship(
+        "LoginLog", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    sessions: Mapped[list["Session"]] = relationship(
+        "Session", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    calendar_events: Mapped[list["CalendarEvent"]] = relationship(
+        "CalendarEvent", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    messages: Mapped[list["Message"]] = relationship(
+        "Message", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    import_jobs: Mapped[list["ImportJob"]] = relationship(
+        "ImportJob", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    export_jobs: Mapped[list["ExportJob"]] = relationship(
+        "ExportJob", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
+    webmail_tokens: Mapped[list["WebmailToken"]] = relationship(
+        "WebmailToken", back_populates="account", lazy="selectin", cascade="all, delete-orphan"
+    )
 
 
 class Domain(Base):
@@ -185,6 +243,9 @@ class Domain(Base):
     spf_record: Mapped[str | None] = mapped_column(Text, nullable=True)
     dkim_record: Mapped[str | None] = mapped_column(Text, nullable=True)
     dkim_private_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    catch_all_target_mailbox_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mailboxes.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
@@ -192,8 +253,13 @@ class Domain(Base):
 
     account: Mapped["Account"] = relationship("Account", back_populates="domains")
     mailboxes: Mapped[list["Mailbox"]] = relationship(
-        "Mailbox", back_populates="domain", lazy="selectin", cascade="all, delete-orphan"
+        "Mailbox", back_populates="domain", lazy="selectin", cascade="all, delete-orphan",
+        foreign_keys="Mailbox.domain_id"
     )
+    aliases: Mapped[list["Alias"]] = relationship(
+        "Alias", back_populates="domain", lazy="selectin", cascade="all, delete-orphan"
+    )
+    catch_all_target_mailbox: Mapped["Mailbox | None"] = relationship("Mailbox", foreign_keys=[catch_all_target_mailbox_id])
 
 
 class Mailbox(Base):
@@ -226,7 +292,7 @@ class Mailbox(Base):
     )
 
     account: Mapped["Account"] = relationship("Account", back_populates="mailboxes")
-    domain: Mapped["Domain"] = relationship("Domain", back_populates="mailboxes")
+    domain: Mapped["Domain"] = relationship("Domain", back_populates="mailboxes", foreign_keys="Mailbox.domain_id")
 
 
 class Subscription(Base):
@@ -624,3 +690,589 @@ class MaintenanceWindow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
     )
+
+
+class Alias(Base):
+    __tablename__ = "aliases"
+    __table_args__ = (
+        Index("ix_aliases_account_id", "account_id"),
+        Index("ix_aliases_domain_id", "domain_id"),
+        Index("ix_aliases_local_part_domain_id", "local_part", "domain_id", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    domain_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("domains.id", ondelete="CASCADE"), nullable=False
+    )
+    local_part: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_mailbox_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mailboxes.id", ondelete="CASCADE"), nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="aliases")
+    domain: Mapped["Domain"] = relationship("Domain", back_populates="aliases")
+    target_mailbox: Mapped["Mailbox"] = relationship("Mailbox")
+
+
+class BlockedSender(Base):
+    __tablename__ = "blocked_senders"
+    __table_args__ = (
+        Index("ix_blocked_senders_account_id", "account_id"),
+        Index("ix_blocked_senders_email_domain", "email_or_domain"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    email_or_domain: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_domain: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    account: Mapped["Account"] = relationship("Account", back_populates="blocked_senders")
+
+
+class EmailRuleField(str, enum.Enum):
+    from_field = "from"
+    to_field = "to"
+    subject = "subject"
+    body = "body"
+
+
+class EmailRuleOperator(str, enum.Enum):
+    contains = "contains"
+    equals = "equals"
+    starts_with = "starts_with"
+    ends_with = "ends_with"
+
+
+class EmailRuleActionType(str, enum.Enum):
+    move_to = "move_to"
+    copy_to = "copy_to"
+    delete = "delete"
+    mark_read = "mark_read"
+    label = "label"
+
+
+class EmailRule(Base):
+    __tablename__ = "email_rules"
+    __table_args__ = (
+        Index("ix_email_rules_account_id", "account_id"),
+        Index("ix_email_rules_priority", "priority"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    custom_sieve: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="email_rules")
+    conditions: Mapped[list["EmailRuleCondition"]] = relationship(
+        "EmailRuleCondition", back_populates="rule", lazy="selectin", cascade="all, delete-orphan"
+    )
+    actions: Mapped[list["EmailRuleAction"]] = relationship(
+        "EmailRuleAction", back_populates="rule", lazy="selectin", cascade="all, delete-orphan"
+    )
+
+
+class EmailRuleCondition(Base):
+    __tablename__ = "email_rule_conditions"
+    __table_args__ = (
+        Index("ix_email_rule_conditions_rule_id", "rule_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    rule_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("email_rules.id", ondelete="CASCADE"), nullable=False
+    )
+    field: Mapped[EmailRuleField] = mapped_column(
+        Enum(EmailRuleField, name="email_rule_field"), nullable=False
+    )
+    operator: Mapped[EmailRuleOperator] = mapped_column(
+        Enum(EmailRuleOperator, name="email_rule_operator"), nullable=False
+    )
+    value: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    rule: Mapped["EmailRule"] = relationship("EmailRule", back_populates="conditions")
+
+
+class EmailRuleAction(Base):
+    __tablename__ = "email_rule_actions"
+    __table_args__ = (
+        Index("ix_email_rule_actions_rule_id", "rule_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    rule_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("email_rules.id", ondelete="CASCADE"), nullable=False
+    )
+    action_type: Mapped[EmailRuleActionType] = mapped_column(
+        Enum(EmailRuleActionType, name="email_rule_action_type"), nullable=False
+    )
+    target_mailbox_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mailboxes.id", ondelete="SET NULL"), nullable=True
+    )
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    rule: Mapped["EmailRule"] = relationship("EmailRule", back_populates="actions")
+    target_mailbox: Mapped["Mailbox | None"] = relationship("Mailbox")
+
+
+class VacationResponse(Base):
+    __tablename__ = "vacation_responses"
+    __table_args__ = (
+        Index("ix_vacation_responses_account_id", "account_id", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    only_contacts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    only_aliases: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="vacation_response")
+
+
+class Contact(Base):
+    __tablename__ = "contacts"
+    __table_args__ = (
+        Index("ix_contacts_account_id", "account_id"),
+        Index("ix_contacts_email", "email"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_vip: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="contacts")
+    group_memberships: Mapped[list["ContactGroupMember"]] = relationship(
+        "ContactGroupMember", back_populates="contact", lazy="selectin", cascade="all, delete-orphan"
+    )
+
+
+class ContactGroup(Base):
+    __tablename__ = "contact_groups"
+    __table_args__ = (
+        Index("ix_contact_groups_account_id", "account_id"),
+        Index("ix_contact_groups_name", "name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="contact_groups")
+    members: Mapped[list["ContactGroupMember"]] = relationship(
+        "ContactGroupMember", back_populates="group", lazy="selectin", cascade="all, delete-orphan"
+    )
+
+
+class ContactGroupMember(Base):
+    __tablename__ = "contact_group_members"
+    __table_args__ = (
+        Index("ix_contact_group_members_group_id", "group_id"),
+        Index("ix_contact_group_members_contact_id", "contact_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("contact_groups.id", ondelete="CASCADE"), nullable=False
+    )
+    contact_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    group: Mapped["ContactGroup"] = relationship("ContactGroup", back_populates="members")
+    contact: Mapped["Contact"] = relationship("Contact", back_populates="group_memberships")
+
+
+class File(Base):
+    __tablename__ = "files"
+    __table_args__ = (
+        Index("ix_files_account_id", "account_id"),
+        Index("ix_files_folder", "folder"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    path: Mapped[str] = mapped_column(String(500), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    folder: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="files")
+
+
+class Note(Base):
+    __tablename__ = "notes"
+    __table_args__ = (
+        Index("ix_notes_account_id", "account_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="notes")
+
+
+class OutboxMessageStatus(str, enum.Enum):
+    pending = "pending"
+    sent = "sent"
+    cancelled = "cancelled"
+
+
+class OutboxMessage(Base):
+    __tablename__ = "outbox_messages"
+    __table_args__ = (
+        Index("ix_outbox_messages_account_id", "account_id"),
+        Index("ix_outbox_messages_scheduled_at", "scheduled_at"),
+        Index("ix_outbox_messages_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    from_address: Mapped[str] = mapped_column(String(255), nullable=False)
+    to_addresses: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    text_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    html_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[OutboxMessageStatus] = mapped_column(
+        Enum(OutboxMessageStatus, name="outbox_message_status"), default=OutboxMessageStatus.pending, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    account: Mapped["Account"] = relationship("Account", back_populates="outbox_messages")
+
+
+class Snooze(Base):
+    __tablename__ = "snoozes"
+    __table_args__ = (
+        Index("ix_snoozes_account_id", "account_id"),
+        Index("ix_snoozes_active", "active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    subject_contains: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sender_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    domain_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    account: Mapped["Account"] = relationship("Account", back_populates="snoozes")
+
+
+class Passkey(Base):
+    __tablename__ = "passkeys"
+    __table_args__ = (
+        Index("ix_passkeys_account_id", "account_id"),
+        Index("ix_passkeys_credential_id", "credential_id", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    credential_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    account: Mapped["Account"] = relationship("Account", back_populates="passkeys")
+
+
+class AppPassword(Base):
+    __tablename__ = "app_passwords"
+    __table_args__ = (
+        Index("ix_app_passwords_account_id", "account_id"),
+        Index("ix_app_passwords_hashed_password", "hashed_password"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    hashed_password: Mapped[str] = mapped_column(Text, nullable=False)
+    permissions: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    account: Mapped["Account"] = relationship("Account", back_populates="app_passwords")
+
+
+class LoginLog(Base):
+    __tablename__ = "login_logs"
+    __table_args__ = (
+        Index("ix_login_logs_account_id", "account_id"),
+        Index("ix_login_logs_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    account: Mapped["Account | None"] = relationship("Account", back_populates="login_logs")
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+    __table_args__ = (
+        Index("ix_sessions_account_id", "account_id"),
+        Index("ix_sessions_token_jti", "token_jti"),
+        Index("ix_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    token_jti: Mapped[str] = mapped_column(String(255), nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    account: Mapped["Account"] = relationship("Account", back_populates="sessions")
+
+
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+    __table_args__ = (
+        Index("ix_calendar_events_account_id", "account_id"),
+        Index("ix_calendar_events_start_at", "start_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    all_day: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    location: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    recurrence_rule: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="calendar_events")
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    __table_args__ = (
+        Index("ix_messages_account_id", "account_id"),
+        Index("ix_messages_folder", "folder"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    from_addr: Mapped[str] = mapped_column(String(255), nullable=False)
+    body_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    folder: Mapped[str] = mapped_column(String(50), default="inbox", nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    account: Mapped["Account"] = relationship("Account", back_populates="messages")
+
+
+class ImportJob(Base):
+    __tablename__ = "import_jobs"
+    __table_args__ = (
+        Index("ix_import_jobs_account_id", "account_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    server: Mapped[str] = mapped_column(String(255), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, default=993, nullable=False)
+    username: Mapped[str] = mapped_column(String(255), nullable=False)
+    password: Mapped[str] = mapped_column(Text, nullable=False)
+    tls: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    messages_imported: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    errors: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_log: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="import_jobs")
+
+
+class ExportJob(Base):
+    __tablename__ = "export_jobs"
+    __table_args__ = (
+        Index("ix_export_jobs_account_id", "account_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    account: Mapped["Account"] = relationship("Account", back_populates="export_jobs")
+
+
+class WebmailToken(Base):
+    __tablename__ = "webmail_tokens"
+    __table_args__ = (
+        Index("ix_webmail_tokens_account_id", "account_id"),
+        Index("ix_webmail_tokens_token", "token", unique=True),
+        Index("ix_webmail_tokens_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+    account: Mapped["Account"] = relationship("Account", back_populates="webmail_tokens")

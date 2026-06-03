@@ -1,6 +1,7 @@
-# Email SaaS: Agentic AI Coding Plan (Compact)
+# Email SaaS: Next Tasks & Agent Guardrails
 
-**Verified against:** `/Users/sean/repos/email-saas/` — all patterns, paths, and conventions are exact matches to the codebase.
+**Document version:** 2025-06-03
+**Status:** All 11 coding-plan features (catch-all, dark mode, calendar, keyboard shortcuts, search, desktop notifications, VIP contacts, import, export, sieve editor, Roundcube SSO) have been implemented. Remaining work below are **cleanup, stabilization, and production-readiness** tasks.
 
 ---
 
@@ -14,7 +15,7 @@
 | Billing | Stripe | stripe==15.1.0 |
 | Auth | JWT (HS256, python-jose), TOTP (pyotp), bcrypt, HMAC recovery codes | python-jose==3.5.0, pyotp==2.9.0, bcrypt==4.3.0 |
 | Rate Limit | slowapi + Redis | slowapi==0.1.9 |
-| Config | Pydantic Settings, `.env` | pydantic-settings==2.14.1 |
+| Config | Pydantic Settings, .env | pydantic-settings==2.14.1 |
 | Frontend | React 19 + Vite 6 + TypeScript 5.8 + Tailwind 4 | react==19.2.6, vite==6.4.3, tailwindcss==4.1.4 |
 | HTTP Client | axios | axios==1.17.0 |
 | Icons | lucide-react | lucide-react==0.487.0 |
@@ -27,21 +28,270 @@
 backend/api/main.py        # FastAPI app, router registration, lifespan, middleware
 backend/api/config.py      # Settings class (env-based, Pydantic)
 backend/api/db.py          # Async engine, session, Base
-backend/api/models.py      # All SQLAlchemy models (16 tables)
+backend/api/models.py      # All SQLAlchemy models (~22 tables)
 backend/api/schemas.py     # All Pydantic schemas
 backend/api/deps.py        # Auth dependencies, JWT, Redis, bcrypt
-backend/api/routers/       # auth.py, domains.py, mailboxes.py, send.py, admin.py, tickets.py, api_keys.py, stripe.py
+backend/api/routers/       # All feature routers
 backend/api/services/      # stalwart_api.py, provision.py, send_throttle.py, audit.py, crypto.py, api_key_crypto.py
 frontend/src/api/client.ts # Axios instance with interceptors
-frontend/src/context/      # AuthContext.tsx, ToastContext.tsx
+frontend/src/context/      # AuthContext.tsx, ToastContext.tsx, ThemeContext.tsx
 frontend/src/App.tsx       # Routes, RequireAuth, GuestRoute
+frontend/src/index.css     # Tailwind CSS + CSS variables (light + dark mode)
 ```
 
 ---
 
-## 3. BACKEND PATTERNS (Copy these exactly)
+## 3. REMAINING TASKS (Production Readiness)
 
-### 3.1 Model
+### Task 1: Apply All Pending Database Migrations
+**Priority:** P0 (must run before app boots)
+**Backend:**
+- Migrations 005 through 009 are ready but unapplied.
+- Run: `cd /home/sean/repos/email-saas/backend && alembic upgrade head`
+- Verify all tables exist: `calendar_events`, `import_jobs`, `export_jobs`, `webmail_tokens`, `contacts.is_vip` (via migration 006), `accounts.sieve_script` (via migration 008).
+- If any migration fails, fix the revision chain. Downgrade to a known-good revision and re-apply.
+
+**Guardrails:**
+- Never skip migrations.
+- Always back up the database before running migrations in production.
+- Never add/remove columns without a migration.
+
+---
+
+### Task 2: Fix Frontend Build / Verify TypeScript
+**Priority:** P0 (must pass before deployment)
+**Frontend:**
+- `node_modules` is missing in the environment. Run: `cd /home/sean/repos/email-saas/frontend && npm install`
+- Run: `cd /home/sean/repos/email-saas/frontend && npm run build` (runs `tsc && vite build`)
+- Fix any TypeScript errors.
+- Fix any Tailwind class warnings.
+- Verify all new routes in `App.tsx` resolve correctly.
+- Verify all new `Sidebar` nav icons exist in `lucide-react`.
+- Verify `ThemeContext.tsx` is imported and used correctly in `main.tsx` and `Sidebar.tsx`.
+- Verify `KeyboardShortcuts.tsx` is mounted in `Layout.tsx` and does not conflict with existing key listeners.
+- Verify `SearchBar.tsx` is mounted in `Layout.tsx` and does not break mobile layout.
+
+**Guardrails:**
+- Never use raw `fetch`. Use `api` from `../api/client`.
+- Never use inline styles. Use Tailwind classes.
+- Never add new dependencies unless approved. Use `lucide-react` for icons.
+- All new pages must use `useAuth`, `useToast`, `Loading` pattern.
+- All new pages must have a `try/catch` around API calls.
+
+---
+
+### Task 3: Verify Backend Router Registration & Imports
+**Priority:** P0
+**Backend:**
+- Verify `backend/api/main.py` correctly imports all new routers:
+  - `calendar`, `search`, `import_jobs`, `export_jobs`, `email_rules` (renamed from `rules`), `passkeys`, `sessions`
+- Verify each router is included with the correct prefix and tags.
+- Ensure `email_rules.py` (not `rules.py`) is the file used in `main.py` imports.
+- Verify `backend/api/config.py` has `roundcube_base_url` set (or defaults to `"https://webmail.example.com"`). Update `.env` to the real URL.
+- Run the backend: `cd /home/sean/repos/email-saas/backend && python -m uvicorn api.main:app --reload` (or the project run command).
+- Verify all new endpoints are reachable via Swagger UI (`/docs`).
+- Test each new endpoint with a valid auth token.
+
+**Guardrails:**
+- Always use `response_model` on router decorators.
+- Always use `get_current_active_account` for customer endpoints.
+- Always add audit logging on POST/PUT/PATCH/DELETE.
+- Always handle Stalwart API errors with `try/except httpx.HTTPStatusError`.
+- Never use `print()`. Use `logging.getLogger(__name__)`.
+- Never hardcode secrets. Use `settings.xxx`.
+
+---
+
+### Task 4: Search Backend - Replace ILIKE with PostgreSQL Full-Text Search
+**Priority:** P1
+**Backend:**
+- Current `search.py` uses simple `ILIKE` pattern matching. This is fine for small datasets but will degrade at scale.
+- Add a `tsvector` column to the `messages` table (or create a search index) using PostgreSQL `to_tsvector`.
+- Update `search.py` to use `func.to_tsvector('english', ...)` + `plainto_tsquery`.
+- Add a GIN index on the tsvector column for performance.
+- Add `tsvector` columns for `contacts` (name + email) and `notes` (title + content) as well.
+- Create an Alembic migration for the new indexes and columns.
+- Ensure search results are still filtered by `account_id`.
+- Keep the `scope` param working (emails, contacts, files, notes, all).
+
+**Guardrails:**
+- Always add indexes on query columns.
+- Always use `ondelete="CASCADE"` or `SET NULL` on FKs.
+- Always add a migration for schema changes.
+- Never expose other accounts' data in search results.
+
+---
+
+### Task 5: Import/Export - Implement Real Background Workers
+**Priority:** P1
+**Backend:**
+- Current `import_jobs.py` and `export_jobs.py` use `background_tasks.add_task` as a stub. Replace with a real task queue.
+- Add a `background_worker.py` module using `celery` or `arq` (or a simple Redis-backed worker).
+- For import: connect via `imaplib` or `aiosmtplib`, fetch messages in batches, save to Stalwart via JMAP.
+- For export: generate MBOX/ICS/vCard files, write to a temp directory, upload to S3 or serve as a streaming download.
+- Update `import_jobs.py` to kick off the worker instead of `background_tasks`.
+- Update `export_jobs.py` to kick off the worker.
+- Add progress tracking (poll `GET /api/v1/import/{id}` or `GET /api/v1/export/{id}` for status).
+- Add a `retry` mechanism for failed import jobs.
+
+**Guardrails:**
+- Never store plaintext passwords in the database. Encrypt the `password` field in `ImportJob` using `api.services.crypto`.
+- Never expose IMAP credentials in logs or API responses.
+- Always validate the IMAP server hostname before connecting.
+- Always add audit logging when import/export starts.
+- Use `settings` for any S3 bucket names or file paths.
+
+---
+
+### Task 6: Roundcube SSO - Configure Production URL & Plugin
+**Priority:** P1
+**Backend:**
+- Update `backend/api/config.py`: `roundcube_base_url` must point to the real Roundcube instance.
+- Create a Roundcube plugin (PHP) that:
+  1. Reads the `token` query parameter on the Roundcube login page.
+  2. Calls `POST /api/v1/auth/webmail-sso` with the token.
+  3. Uses the returned `email` and `password_hash` to authenticate the user.
+  4. Redirects to the Roundcube inbox.
+- Ensure the token is single-use and expires after 5 minutes.
+- Ensure the token is invalidated after use.
+- Add rate limiting to `POST /api/v1/auth/webmail-sso` (e.g., 5 requests per minute per IP).
+
+**Guardrails:**
+- Never return the plaintext password in the SSO response.
+- Always validate the token against the `WebmailToken` table (unused + not expired).
+- Always mark the token as used immediately after validation.
+- Never log the token value.
+
+---
+
+### Task 7: Dark Mode - Verify CSS Coverage & Accessibility
+**Priority:** P2
+**Frontend:**
+- Audit all existing pages for missing `dark:` class coverage.
+- Check that `index.css` dark mode variables apply correctly to all custom components.
+- Verify `html.dark` class is toggled on `<html>` (not `<body>`) by `ThemeContext`.
+- Add `prefers-color-scheme: dark` fallback if `localStorage` key is missing.
+- Ensure focus rings and active states are visible in dark mode.
+- Verify the theme toggle is accessible (aria-label, keyboard focus).
+- Add `theme-color` meta tag to `index.html` to match current theme.
+
+**Guardrails:**
+- Never use inline styles for colors.
+- Always use CSS variables (`--color-background`, `--color-surface`, etc.) or Tailwind dark mode.
+- Never hardcode color hex values in component code.
+
+---
+
+### Task 8: Keyboard Shortcuts - Resolve Conflicts & Add Missing Shortcuts
+**Priority:** P2
+**Frontend:**
+- Ensure `KeyboardShortcuts.tsx` does not intercept `Escape` when a modal is already open (e.g., Calendar event modal, Sieve editor).
+- Ensure `KeyboardShortcuts.tsx` does not intercept `/` when the user is inside a text input.
+- Ensure `g` sequences do not interfere with the browser's native `Ctrl+G` or `Cmd+G`.
+- Add missing shortcuts for new pages:
+  - `g i` -> Import
+  - `g e` -> Export
+  - `g f` -> Files
+  - `g n` -> Notes
+  - `g p` -> Passkeys
+  - `g l` -> Login Logs
+  - `g u` -> Outbox
+  - `g z` -> Snooze
+  - `g v` -> Vacation Response
+  - `g r` -> Email Rules
+- Add a shortcut for "Toggle notifications" (`n t`).
+- Add a shortcut for "Search" (`/` - already implemented, verify it focuses the SearchBar).
+- Verify the `?` help overlay lists all current shortcuts and has no stale entries.
+
+**Guardrails:**
+- Never block native browser shortcuts (Ctrl+C, Ctrl+V, Ctrl+S, Ctrl+Z, Ctrl+F).
+- Always check `event.target` is not an input/textarea before intercepting key presses.
+- Always use `useEffect` with cleanup for global listeners.
+
+---
+
+### Task 9: Search Frontend - Add Mobile Layout & Keyboard Navigation
+**Priority:** P2
+**Frontend:**
+- Ensure `SearchBar.tsx` collapses to a small icon on mobile and expands on tap.
+- Add keyboard navigation inside the search results dropdown (Up/Down arrows, Enter to select, Escape to close).
+- Add a "No results" state.
+- Add loading state inside the search dropdown.
+- Ensure the search overlay does not block the sidebar on mobile.
+- Add a `debounce` of 300ms (already implemented, verify it works correctly).
+- Ensure the `scope` tabs are scrollable on mobile.
+
+**Guardrails:**
+- Always use `useEffect` for cleanup.
+- Always use the `api` client, not raw `fetch`.
+- Always handle `Escape` to close the dropdown.
+
+---
+
+### Task 10: Calendar - Sync with Stalwart CalDAV
+**Priority:** P2
+**Backend:**
+- Current `CalendarEvent` is stored only in PostgreSQL. Sync events to Stalwart via CalDAV.
+- On create/update/delete of a `CalendarEvent`, push the change to Stalwart via CalDAV (or JMAP for Calendars if available).
+- On read, prefer Stalwart as the source of truth and cache in PostgreSQL.
+- Add a background sync job that periodically pulls events from Stalwart and updates the local cache.
+- Handle recurrence rules (`recurrence_rule` field) correctly when syncing.
+- Handle ICS invitations (e.g., `METHOD:REQUEST`) by parsing the ICS and creating/updating events.
+
+**Guardrails:**
+- Always handle CalDAV errors gracefully.
+- Always use `settings` for CalDAV server URL.
+- Never expose Stalwart admin credentials.
+- Always add audit logging for calendar mutations.
+
+---
+
+### Task 11: VIP Notifications - Wire to Desktop Notifications
+**Priority:** P2
+**Backend + Frontend:**
+- Backend: when a new message arrives from a `Contact` with `is_vip=True`, include a `vip: true` flag in the notification payload.
+- Frontend: when `DesktopNotifications` is enabled, check if the incoming notification is VIP. If the user has "VIP only" mode enabled in Settings, only show VIP notifications.
+- Add a "VIP only" toggle in `SettingsPage.tsx` under the Notifications section.
+- Persist the "VIP only" setting in `localStorage` as `vip_notifications_only`.
+- Add a Web Push subscription endpoint that filters by VIP status.
+
+**Guardrails:**
+- Always respect the user's notification preference.
+- Never spam notifications.
+- Always check `Notification.permission === "granted"` before showing.
+
+---
+
+### Task 12: Sieve Editor - Add Syntax Highlighting
+**Priority:** P3
+**Frontend:**
+- Replace the plain `<textarea>` in `EmailRulesPage.tsx` with a lightweight code editor (e.g., `react-simple-code-editor` or `prismjs` for syntax highlighting).
+- Use `prismjs` with a Sieve grammar (or a custom grammar for basic Sieve keywords: `require`, `if`, `elsif`, `else`, `fileinto`, `reject`, `discard`, `keep`, `stop`, `redirect`, `vacation`, `allof`, `anyof`, `not`, `header`, `address`, `envelope`, `size`, `body`).
+- The editor should be at least 20 rows tall.
+- Keep the existing validate/save/reset buttons.
+- Ensure the editor works in dark mode.
+- Ensure the editor is accessible (tab navigation, focus visible).
+
+**Guardrails:**
+- Do not add heavy dependencies (e.g., Monaco Editor) unless necessary.
+- Keep the bundle size small.
+- Use existing `lucide-react` icons.
+
+---
+
+### Task 13: Custom Webmail (Inbox) - Planning Only
+**Priority:** P3 (do not implement yet)
+**Notes:**
+- This is a 6-12 month project to replace Roundcube.
+- Do not write any code for this yet. Only gather requirements.
+- Plan: JMAP API client, thread view, compose UI, attachment handling, drag-and-drop, search, filters.
+- Keep this as a separate PRD document when ready.
+
+---
+
+## 4. BACKEND PATTERNS (Copy these exactly)
+
+### 4.1 Model
 ```python
 import uuid, enum
 from datetime import datetime, timezone
@@ -65,7 +315,7 @@ class MyModel(Base):
 ```
 **Rule:** Add `my_models: Mapped[list["MyModel"]] = relationship("MyModel", back_populates="account", lazy="selectin", cascade="all, delete-orphan")` to `Account`. Always run `alembic revision --autogenerate -m "add my_models"` then `alembic upgrade head`.
 
-### 3.2 Schema
+### 4.2 Schema
 ```python
 from pydantic import BaseModel, ConfigDict, Field
 class MyModelCreate(BaseModel):
@@ -78,7 +328,7 @@ class MyModelOut(BaseModel):
     created_at: datetime
 ```
 
-### 3.3 Router
+### 4.3 Router
 ```python
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -106,21 +356,21 @@ async def create_my_model(
     pass
 ```
 
-### 3.4 Auth Dependencies (chain)
-```python
-# No auth → get_current_account → get_current_active_account → require_admin → require_superadmin
+### 4.4 Auth Dependencies (chain)
+```
+# No auth -> get_current_account -> get_current_active_account -> require_admin -> require_superadmin
 # Use get_current_active_account for customer endpoints.
 # Use require_admin for admin endpoints (requires 2FA if admin_2fa_required).
 # Use require_superadmin for superadmin endpoints.
 ```
 
-### 3.5 Audit Log (mandatory for POST/PUT/PATCH/DELETE)
+### 4.5 Audit Log (mandatory for POST/PUT/PATCH/DELETE)
 ```python
 from api.services.audit import audit_from_request
 await audit_from_request(request, "action_name", "resource_type", str(resource.id), account.id, account.id, metadata={"key": "value"})
 ```
 
-### 3.6 Stalwart API Call
+### 4.6 Stalwart API Call
 ```python
 from api.services.stalwart_api import client  # httpx.AsyncClient, already configured
 # JMAP call:
@@ -135,9 +385,9 @@ except httpx.HTTPStatusError as e:
 
 ---
 
-## 4. FRONTEND PATTERNS (Copy these exactly)
+## 5. FRONTEND PATTERNS (Copy these exactly)
 
-### 4.1 API Call
+### 5.1 API Call
 ```typescript
 import { api } from "../api/client";
 const res = await api.get<MyType[]>("/endpoint");
@@ -145,7 +395,7 @@ const data = res.data;
 ```
 **Never use raw `fetch`.**
 
-### 4.2 Page Component
+### 5.2 Page Component
 ```typescript
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -173,32 +423,33 @@ export default function MyPage() {
 }
 ```
 
-### 4.3 Tailwind Classes (existing theme)
+### 5.3 Tailwind Classes (existing theme)
 - Cards: `card p-6`
-- Buttons: `btn-primary`, `btn-secondary`, `btn-danger`
+- Buttons: `btn-primary`, `btn-secondary`, `btn-danger`, `btn-success`, `btn-accent`
 - Inputs: `input`
 - Labels: `label`
 - Layout: `space-y-6`, `grid sm:grid-cols-2 gap-4`
 - Colors: `text-accent`, `text-success`, `text-danger`, `text-warning`, `text-muted`, `bg-surface-alt`, `bg-accent/10`
 - Loading: `<Loader2 size={16} className="animate-spin" />`
+- Dark mode: `html.dark` class toggles all CSS variables automatically.
 
 ---
 
-## 5. GUARDRAILS (Non-negotiable)
+## 6. GUARDRAILS (Non-negotiable)
 
-### 5.1 Code Generation
-1. Never invent new patterns — use exact patterns from this doc.
+### 6.1 Code Generation
+1. Never invent new patterns - use exact patterns from this doc.
 2. Never change existing code style.
 3. Never skip migrations.
 4. Never skip audit logging on mutating endpoints.
 5. Never skip auth checks.
-6. Never use `print()` — use logger.
-7. Never hardcode secrets — use `settings.xxx`.
+6. Never use `print()` - use logger.
+7. Never hardcode secrets - use `settings.xxx`.
 8. Never skip error handling on Stalwart calls.
 9. Never use `eval()` or `exec()`.
 10. Never store plaintext in logs.
 
-### 5.2 Database
+### 6.2 Database
 - Always add indexes on foreign keys and query columns.
 - Always use `ondelete="CASCADE"` or `SET NULL` on FKs.
 - Always use `nullable=False` unless truly optional.
@@ -206,183 +457,41 @@ export default function MyPage() {
 - Always use `uuid.uuid4()` for IDs.
 - Never add/remove columns without a migration.
 
-### 5.3 API
+### 6.3 API
 - Always use Pydantic schemas for request/response.
 - Always use `response_model` on router decorators.
-- Always validate ownership (check `account_id` matches).
-- Always return proper HTTP codes (201 create, 200 update, 204 delete, 404 not found, 400 bad request, 429 rate limited).
-- Always rate-limit public endpoints with `@limiter.limit("5/minute")`.
-- Never return raw SQLAlchemy objects or password hashes.
+- Always validate ownership before returning data.
+- Always return `MessageOut` for simple messages.
+- Always use `429` for rate limits, `401` for auth, `403` for forbidden, `404` for not found, `422` for validation.
 
-### 5.4 Frontend
-- Always use `api` client from `api/client.ts`.
-- Always handle errors with `addToast(..., "error")`.
-- Always show loading states.
-- Always use Tailwind classes from the existing theme.
-- Never use inline styles.
-- Never add new dependencies without justification.
-- Always use TypeScript types (no `any`).
+### 6.4 Frontend
+- Always use the `api` client (never raw `fetch`).
+- Always use `useToast` for errors.
+- Always use `Loading` for loading states.
+- Always use `lucide-react` for icons.
+- Always use Tailwind classes (never inline styles).
+- Always add `try/catch` around API calls.
+- Always clean up `useEffect` listeners.
+- Never add new dependencies without approval.
+- Never block native browser shortcuts in `KeyboardShortcuts`.
 
-### 5.5 Stalwart
-- Always use the existing `client` from `stalwart_api.py`.
-- Always handle `httpx.HTTPStatusError` with 502/503.
-- Always verify API docs before implementing.
-- Never call Stalwart synchronously for long operations — use background jobs.
-- Cache Stalwart responses in Redis when appropriate.
+### 6.5 Security
+- Never return plaintext passwords in API responses.
+- Never log tokens, secrets, or credentials.
+- Always encrypt sensitive fields at rest (use `api.services.crypto`).
+- Always validate tokens before use and mark them as used immediately.
+- Always rate-limit public endpoints (SSO, login, password reset).
+- Always validate input with Pydantic schemas.
+- Never allow open redirects.
+- Never allow SQL injection (use SQLAlchemy ORM, never raw SQL).
 
-### 5.6 Testing
-- Always write tests for new endpoints.
-- Always mock Stalwart API calls.
-- Always test auth failures (401, 403).
-- Always test duplicate creation (400).
-- Always test ownership validation (404 for other user's resources).
-- Use `pytest-asyncio` for async tests.
-- Use `aiosqlite` for test DB.
-
-### 5.7 Security Checklist (before marking done)
-- [ ] Auth checks (`get_current_active_account` or higher)
-- [ ] Ownership validation enforced
-- [ ] Audit logging on all mutating endpoints
-- [ ] Rate limiting applied
-- [ ] Pydantic input validation with Field constraints
-- [ ] No sensitive data returned in responses
-- [ ] No secrets logged
-- [ ] Stalwart errors handled gracefully (not exposed to user)
-- [ ] SQL injection impossible (only parameterized queries)
+### 6.6 Testing
+- Add a test for every new backend endpoint.
+- Add a test for every new frontend page component.
+- Run `pytest` in `backend/` before committing.
+- Run `npm run build` in `frontend/` before committing.
+- Never commit without running the test suite.
 
 ---
 
-## 6. COMMON PITFALLS
-
-| Wrong | Correct |
-|-------|---------|
-| `db.execute(...)` | `await db.execute(...)` |
-| `Account.id == account_id` (string) | `Account.id == uuid.UUID(account_id)` |
-| `Redis.from_url(...)` without close | `redis = await get_redis(); ...; await redis.aclose()` |
-| `class MyOut(BaseModel):` (no `model_config`) | `class MyOut(BaseModel): model_config = ConfigDict(from_attributes=True)` |
-| `fetch("/api/...")` | `api.get<T>("/endpoint")` |
-| `client.post("/api/v1/account", ...)` | `client.post("/api", json={"methodCalls": [...]})` (JMAP) |
-| `datetime.now()` | `datetime.now(timezone.utc)` (or `now_utc()`) |
-| `password = "plain"` in code | `password_hash = hash_password(password)` |
-| `select(Account).where(Account.email == email)` without index | Add `Index("ix_accounts_email", "email", unique=True)` in model |
-| `return account` directly from endpoint | `return MyOut.model_validate(account)` or use `response_model` |
-
----
-
-## 7. QUICK REFERENCE: EXISTING ENDPOINTS
-
-| Prefix | Methods | Description |
-|--------|---------|-------------|
-| `/api/v1/auth` | POST register, login, login/totp, logout, change-password, totp/*, reset-password/* | Auth, TOTP, password |
-| `/api/v1/domains` | POST, GET, GET/{id}, DELETE/{id}, POST/{id}/verify, POST/{id}/rotate-dkim, GET/{id}/onboarding, GET/{id}/dns-guide | Domain CRUD, DNS |
-| `/api/v1/mailboxes` | POST, GET, GET/{id}, PATCH/{id}, DELETE/{id} | Mailbox CRUD |
-| `/api/v1/send` | POST /send | Send email (throttled) |
-| `/api/v1/admin` | GET /metrics, GET /accounts, GET /accounts/{id}, POST /accounts/{id}/impersonate, POST /accounts/{id}/suspend, POST /accounts/{id}/unsuspend, GET /jobs, GET /stats, GET /audit-log | Admin |
-| `/api/v1/api-keys` | POST, GET, DELETE/{id} | API key management |
-| `/api/v1/stripe` | POST /checkout, POST /portal, POST /webhook | Stripe |
-| `/api/v1/tickets` | POST, GET, GET/{id}, POST/{id}/comments, PATCH/{id} | Support tickets |
-| `/api/v1/health` | GET | Health check |
-
----
-
-## 8. MIGRATION CHECKLIST
-
-When adding any new feature:
-1. Add model to `backend/api/models.py`.
-2. Add relationship to `Account` model.
-3. Add schema to `backend/api/schemas.py`.
-4. Add router to `backend/api/routers/`.
-5. Register router in `backend/api/main.py`.
-6. Add page/component to `frontend/src/pages/` or `frontend/src/components/`.
-7. Add route in `frontend/src/App.tsx`.
-8. Run `alembic revision --autogenerate -m "add xxx"`.
-9. Run `alembic upgrade head`.
-10. Write tests in `backend/tests/`.
-11. Run `pytest`.
-
----
-
-## 9. IMPLEMENTATION PHASES (What to build)
-
-**Architecture principle:** The React SPA is the control panel. Users configure everything in the dashboard (Settings, Domains, etc.). The FastAPI backend pushes those settings to Stalwart via JMAP/Management API. Roundcube is just a mail reader — it connects to Stalwart's IMAP and naturally sees all applied rules, aliases, vacation, etc. Roundcube is NOT a configuration panel. Users do not set up aliases or rules inside Roundcube.
-
-**Flow:** User → React SPA → FastAPI → Stalwart API → Stalwart server. Roundcube → Stalwart IMAP (read-only mail).
-
-### Phase 1: Foundation (Weeks 1-2)
-
-| Feature | Gap | UI Location | Backend | Stalwart |
-|---------|-----|-------------|---------|----------|
-| **JMAP Client** | No JMAP API client exists | None — backend only | Extend `stalwart_api.py` with `jmap_call()` | JMAP API |
-| **Roundcube SSO** | Users must log in manually with mailbox credentials | `MailSetupPage.tsx` — "Open Webmail" button opens new tab with `?_sso_token=xxx` | Add `GET /api/v1/auth/webmail-token` to `auth.py` | Roundcube plugin to verify token |
-| **DB Migrations** | No tables for aliases, rules, vacation, contacts, files | None — schema only | Add `Alias`, `BlockedSender`, `EmailRule`, `VacationResponse`, `Contact`, `ContactGroup`, `File` to `models.py` + alembic | None |
-
-### Phase 2: Core Email (Weeks 3-4)
-
-| Feature | Gap | UI Location | Backend | Stalwart |
-|---------|-----|-------------|---------|----------|
-| **Aliases** | No aliases. Only mailboxes exist. | **Settings → Aliases** (or **Domains → Aliases** tab). List, add, delete, toggle active. | `aliases.py` router. `POST/GET/DELETE/PATCH /api/v1/aliases`. Sync to Stalwart via `/api/principal` (group type) or domain `emails` array. | `POST /api/principal` with type=group, emails=[alias], members=[target] |
-| **Catch-all** | No catch-all. Every mailbox must be pre-created. | **Domains → Domain Settings** — toggle "Enable catch-all" + target mailbox selector. | Patch `domains.py`. `POST /api/v1/domains/{id}/catch-all`. Update `Domain` table with `catch_all_target_mailbox_id`. | Domain config via Management API |
-| **Vacation Response** | No auto-responder. | **Settings → Vacation** — enable toggle, date range, subject, body, scope checkboxes (only contacts, only aliases). | `vacation.py` router. `VacationResponse` table. Generate Sieve `vacation` script, push via JMAP `SieveScript/set`. | JMAP for Sieve (RFC 9661) |
-| **Rules Engine** | No rules/filters. | **Settings → Rules** — visual builder: condition (from/to/subject/contains/equals), action (move to/copy to/delete/label). Drag to reorder priority. | `rules.py` router. `EmailRule` table. Generate Sieve script from all active rules, push via JMAP. | JMAP for Sieve |
-| **Blocked Senders** | No blocked senders list. | **Settings → Blocked Senders** — list of emails/domains. Add/remove. Auto-moves to Trash. | `blocked_senders.py` router. `BlockedSender` table. Auto-generate hidden Sieve rule. | Sieve via JMAP |
-| **Sieve Editor** | No custom Sieve editing. | **Settings → Rules → Advanced** tab. Monaco/CodeMirror editor with syntax highlight. | Extend `rules.py`. Validate syntax. Push via JMAP. | JMAP for Sieve |
-
-### Phase 3: Collaboration (Weeks 5-6)
-
-| Feature | Gap | UI Location | Backend | Stalwart |
-|---------|-----|-------------|---------|----------|
-| **Calendar** | No calendar. | **Calendar** page (nav item). Month/week/day views. Create/edit events. Handle ICS invitations. | `calendar.py` router (CalDAV proxy). `Calendar`, `CalendarEvent` cache tables. | CalDAV (RFC 4791) + JMAP for Calendars |
-| **Contacts** | No contacts. | **Contacts** page (nav item). List, groups, add/edit. Auto-save from mail. | `contacts.py` router. `Contact`, `ContactGroup` tables. Sync to CardDAV. | CardDAV (RFC 6352) + JMAP for Contacts |
-| **File Storage** | No file storage. | **Files** page (nav item). Drag-and-drop, folder tree, file list. | `files.py` router (WebDAV proxy). `File` cache table. | WebDAV (RFC 4918) |
-| **Notes** | No notes. | **Notes** page (nav item). Simple text editor, list of notes. | `notes.py` router. `Note` table. | IMAP Notes folder or WebDAV |
-
-### Phase 4: UX & Security (Weeks 7-8)
-
-| Feature | Gap | UI Location | Backend | Stalwart |
-|---------|-----|-------------|---------|----------|
-| **Dark Mode** | Only light theme. | **Settings → Appearance** — toggle. Applies globally. | None | None |
-| **Keyboard Shortcuts** | No shortcuts. | Global. Press `?` to show overlay. | None | None |
-| **Passkeys** | No passkey/WebAuthn support. | **Settings → Security → Passkeys** — add/remove passkeys. | `passkeys.py` router. `Passkey` table. | None |
-| **App Passwords** | No app passwords for IMAP/SMTP. | **Settings → Security → App Passwords** — create, name, view, revoke. | `app_passwords.py` router. Proxy to Stalwart Management API. | App Password API |
-| **Session Management** | No session list/revocation. | **Settings → Security → Sessions** — list active sessions, revoke individual or all. | Extend `auth.py`. Redis session keys. | None |
-| **Login Log** | No login history. | **Settings → Security → Login History** — table of IP, location, time, success/failure. | `login_log.py` or extend audit. | None |
-
-### Phase 5: Advanced (Weeks 9-12)
-
-| Feature | Gap | UI Location | Backend | Stalwart |
-|---------|-----|-------------|---------|----------|
-| **Undo Send** | Messages send immediately. | **Compose** → after sending, toast shows "Undo" for 10-30s. | `send.py` extension. `OutboxMessage` table. Worker polls every 5s. | None (handled before Stalwart) |
-| **Scheduled Send** | No future delivery. | **Compose** → "Schedule" button. Date/time picker. | Extend `send.py`. Same `OutboxMessage` table. | None |
-| **Snooze** | No snooze. | **Inbox** (in custom webmail or via Roundcube context menu) → "Snooze" → 1h, 1d, 1w, custom. | `snooze.py` router. Store snooze in DB. Apply via JMAP/Sieve at time. | JMAP flags or Sieve |
-| **Import** | No import from Gmail/Outlook. | **Settings → Import** — IMAP server, credentials, OAuth2 for Gmail. Progress bar. | `import.py` router. `imaplib` sync. Background job. | IMAP (external) |
-| **Export** | No export. | **Settings → Export** — select MBOX/ICS/vCard, generate, download. | `export.py` router. Generate files, stream download. | IMAP + CalDAV + CardDAV |
-| **Full-Text Search** | No search in webmail. | **Search bar** in top nav or webmail. Instant results. | `search.py` router. PostgreSQL `tsvector` or proxy to Stalwart. | Stalwart built-in FTS (17 languages) |
-| **Desktop Notifications** | No push notifications. | Browser permission prompt. **Settings → Notifications** — enable/disable. | `notifications.py` router. Web Push API. Service worker. | Webhooks `store.ingest` event |
-| **VIP Notifications** | No per-sender notification rules. | **Contacts** → "VIP" toggle on contact. **Settings → Notifications** → "VIP only" mode. | Extend notifications. `is_vip` on `Contact`. | None |
-
-### Phase 6: Scale & Enterprise (Months 3-6+)
-
-| Feature | Gap | UI Location | Backend | Notes |
-|---------|-----|-------------|---------|-------|
-| **Custom Webmail** | Roundcube is basic, no SSO | **Inbox** page (nav item). Replaces Roundcube. Threads, compose, attachments. | JMAP API for mail sync. | 6-12 month project. Replaces Roundcube. |
-| **Native Mobile Apps** | No mobile apps | Mobile app (React Native/Flutter). | JMAP API for sync. | High complexity. |
-| **Shared Mailboxes** | No shared mailboxes/team features | **Settings → Shared Mailboxes** — invite users, set permissions. | `shared_mailboxes.py` router. Stalwart ACLs + Groups. | Stalwart IMAP ACL + JMAP Sharing. |
-| **DNS Hosting** | No DNS management | **Domains → DNS** — manage records. Custom nameservers. | PowerDNS or similar. | Requires new infrastructure. |
-| **Website Hosting** | No website hosting | **Files → Publish** — select folder, publish as static site. | Static file hosting from WebDAV. | Low priority. |
-| **Quota Add-ons** | No extra storage purchases | **Billing → Upgrade Storage** — slider, checkout. | Stripe metered billing. Update Stalwart quota. | Easy with existing Stripe. |
-| **Retention Policies** | No tamper-proof retention | **Admin** → retention settings. | `RetentionPolicy` table. WORM storage. | Complex. |
-
----
-
-## 10. PRIORITY MATRIX
-
-| Priority | Features | UI Location | Est. Time | Impact |
-|----------|----------|-------------|-----------|--------|
-| **P0 (now)** | JMAP client, Roundcube SSO, aliases, catch-all | Settings, MailSetupPage, Domains | 2-3 weeks | Core identity |
-| **P1 (next)** | Calendar, contacts, file storage, rules, vacation, blocked senders | Settings, Calendar, Contacts, Files | 4-6 weeks | Differentiation |
-| **P2 (later)** | Dark mode, keyboard shortcuts, passkeys, app passwords, undo send, scheduled send | Settings, Compose | 3-4 weeks | UX + security |
-| **P3 (future)** | Custom webmail, mobile apps, shared mailboxes, DNS hosting | Inbox, Settings, Domains | 3-6 months | Scale + enterprise |
-
----
-
-*Document compiled by analyzing the full email-saas codebase. All patterns, paths, and conventions are verified against the actual source code.*
+*Document compiled from the previous agent session's "Remaining Notes" and the existing codebase patterns. All tasks are specific, actionable, and have clear guardrails.*

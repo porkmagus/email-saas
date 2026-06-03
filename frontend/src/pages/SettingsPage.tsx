@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
-import { User, Lock, Key, Shield, Copy, Trash2, Plus, Loader2, CheckCircle, X, Eye } from "lucide-react";
+import { DesktopNotificationsToggle } from "../components/DesktopNotifications";
+import { User, Lock, Key, Shield, Copy, Trash2, Plus, Loader2, CheckCircle, X, Eye, Bell } from "lucide-react";
 
 interface ApiKey {
   id: string;
@@ -219,6 +220,14 @@ export default function SettingsPage() {
             )}
           </div>
         )}
+      </div>
+
+      <div className="card p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Bell size={18} className="text-accent" />
+          <h2 className="font-semibold">Security & Privacy</h2>
+        </div>
+        <DesktopNotificationsToggle />
       </div>
 
       <div className="card p-6">

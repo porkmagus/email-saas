@@ -20,11 +20,27 @@ import AdminTicketsPage from "./pages/admin/AdminTicketsPage";
 import AdminTicketDetailPage from "./pages/admin/AdminTicketDetailPage";
 import AdminAuditLogPage from "./pages/admin/AdminAuditLogPage";
 import MailSetupPage from "./pages/MailSetupPage";
+import AliasesPage from "./pages/AliasesPage";
+import ContactsPage from "./pages/ContactsPage";
+import CalendarPage from "./pages/CalendarPage";
+import BlockedSendersPage from "./pages/BlockedSendersPage";
+import EmailRulesPage from "./pages/EmailRulesPage";
+import VacationResponsePage from "./pages/VacationResponsePage";
+import AppPasswordsPage from "./pages/AppPasswordsPage";
+import FilesPage from "./pages/FilesPage";
+import NotesPage from "./pages/NotesPage";
+import PasskeysPage from "./pages/PasskeysPage";
+import LoginLogsPage from "./pages/LoginLogsPage";
+import OutboxPage from "./pages/OutboxPage";
+import SnoozePage from "./pages/SnoozePage";
+import SessionsPage from "./pages/SessionsPage";
 import TermsPage from "./pages/TermsPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import AupPage from "./pages/AupPage";
 import StatusPage from "./pages/StatusPage";
 import DNSGuidePage from "./pages/DNSGuidePage";
+import ImportPage from "./pages/ImportPage";
+import ExportPage from "./pages/ExportPage";
 import Layout from "./components/Layout";
 import AdminLayout from "./components/AdminLayout";
 import Loading from "./components/Loading";
@@ -62,6 +78,22 @@ export default function App() {
         <Route path="/domains/:id/dns-guide" element={<RequireAuth><DNSGuidePage /></RequireAuth>} />
         <Route path="/mailboxes" element={<RequireAuth><MailboxesPage /></RequireAuth>} />
         <Route path="/mail-setup" element={<RequireAuth><MailSetupPage /></RequireAuth>} />
+        <Route path="/aliases" element={<RequireAuth><AliasesPage /></RequireAuth>} />
+        <Route path="/contacts" element={<RequireAuth><ContactsPage /></RequireAuth>} />
+        <Route path="/calendar" element={<RequireAuth><CalendarPage /></RequireAuth>} />
+        <Route path="/blocked-senders" element={<RequireAuth><BlockedSendersPage /></RequireAuth>} />
+        <Route path="/email-rules" element={<RequireAuth><EmailRulesPage /></RequireAuth>} />
+        <Route path="/vacation-response" element={<RequireAuth><VacationResponsePage /></RequireAuth>} />
+        <Route path="/outbox" element={<RequireAuth><OutboxPage /></RequireAuth>} />
+        <Route path="/snooze" element={<RequireAuth><SnoozePage /></RequireAuth>} />
+        <Route path="/app-passwords" element={<RequireAuth><AppPasswordsPage /></RequireAuth>} />
+        <Route path="/files" element={<RequireAuth><FilesPage /></RequireAuth>} />
+        <Route path="/notes" element={<RequireAuth><NotesPage /></RequireAuth>} />
+        <Route path="/passkeys" element={<RequireAuth><PasskeysPage /></RequireAuth>} />
+        <Route path="/login-logs" element={<RequireAuth><LoginLogsPage /></RequireAuth>} />
+        <Route path="/sessions" element={<RequireAuth><SessionsPage /></RequireAuth>} />
+        <Route path="/import" element={<RequireAuth><ImportPage /></RequireAuth>} />
+        <Route path="/export" element={<RequireAuth><ExportPage /></RequireAuth>} />
         <Route path="/billing" element={<RequireAuth><BillingPage /></RequireAuth>} />
         <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
         <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
