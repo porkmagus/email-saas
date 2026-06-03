@@ -24,6 +24,7 @@ import TermsPage from "./pages/TermsPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import AupPage from "./pages/AupPage";
 import StatusPage from "./pages/StatusPage";
+import DNSGuidePage from "./pages/DNSGuidePage";
 import Layout from "./components/Layout";
 import AdminLayout from "./components/AdminLayout";
 import Loading from "./components/Loading";
@@ -58,6 +59,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
         <Route path="/domains" element={<RequireAuth><DomainsPage /></RequireAuth>} />
+        <Route path="/domains/:id/dns-guide" element={<RequireAuth><DNSGuidePage /></RequireAuth>} />
         <Route path="/mailboxes" element={<RequireAuth><MailboxesPage /></RequireAuth>} />
         <Route path="/mail-setup" element={<RequireAuth><MailSetupPage /></RequireAuth>} />
         <Route path="/billing" element={<RequireAuth><BillingPage /></RequireAuth>} />

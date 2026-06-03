@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { Link } from "react-router-dom";
 import { useToast } from "../context/ToastContext";
 import Loading from "../components/Loading";
 import {
@@ -14,6 +15,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  BookOpen,
 } from "lucide-react";
 
 interface Domain {
@@ -198,6 +200,13 @@ export default function DomainsPage() {
                   {expandedId === d.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   DNS
                 </button>
+                <Link
+                  to={`/domains/${d.id}/dns-guide`}
+                  className="btn-accent text-xs flex items-center gap-1"
+                >
+                  <BookOpen size={14} />
+                  Setup Guide
+                </Link>
                 <button className="btn-danger text-xs" onClick={() => handleDelete(d.id)}>
                   <Trash2 size={14} />
                 </button>

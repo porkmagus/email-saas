@@ -161,6 +161,41 @@ class OnboardingOut(BaseModel):
     webmail_url: str
 
 
+class DNSGuideRecord(BaseModel):
+    name: str
+    type: str
+    value: str
+    priority: int | None = None
+    ttl: int = 3600
+    instructions: str
+
+
+class DNSGuideStep(BaseModel):
+    step: int
+    title: str
+    description: str
+    records: list[DNSGuideRecord]
+    tips: list[str]
+
+
+class DNSGuideProvider(BaseModel):
+    name: str
+    slug: str
+    dns_url: str
+    instructions: list[str]
+
+
+class DNSGuideOut(BaseModel):
+    domain: str
+    providers: list[DNSGuideProvider]
+    steps: list[DNSGuideStep]
+    troubleshooting: list[str]
+    propagation_note: str
+    mx_server: str
+    webmail_url: str
+    dmarc_record: str
+
+
 # ---------------------------------------------------------------------------
 # Mailbox schemas
 # ---------------------------------------------------------------------------

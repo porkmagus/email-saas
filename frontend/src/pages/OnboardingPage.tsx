@@ -51,7 +51,7 @@ export default function OnboardingPage() {
     {
       key: "domain_verified",
       label: "Verify domain DNS",
-      desc: "Add MX, SPF, and DKIM records, then verify.",
+      desc: "Follow the step-by-step DNS setup guide.",
       icon: Globe,
       link: "/domains",
       done: steps.domain_verified,
