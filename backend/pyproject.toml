@@ -24,6 +24,7 @@ dependencies = [
     "pyotp==2.9.0",
     "redis==5.2.1",
     "python-multipart==0.0.27",
+    "pytest-timeout>=2.4.0",
 ]
 
 [project.optional-dependencies]

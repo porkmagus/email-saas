@@ -4,7 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
-  ReactNode,
+  type ReactNode,
 } from "react";
 import { api } from "../api/client";
 

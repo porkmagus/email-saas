@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useToast } from "../context/ToastContext";
 import Loading from "../components/Loading";
-import { Loader2, Save, Trash2, Calendar } from "lucide-react";
+import { Loader2, Save, Trash2 } from "lucide-react";
 
 interface VacationResponse {
   id: string;

@@ -1,6 +1,5 @@
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
-import MobileHeader from "./MobileHeader";
 import KeyboardShortcuts from "./KeyboardShortcuts";
 import SearchBar from "./SearchBar";
 

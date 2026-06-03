@@ -1,10 +1,9 @@
 """Export jobs router."""
 
 import uuid
-from datetime import datetime, timezone
-from typing import Annotated
+from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +12,7 @@ from api.db import get_db
 from api.deps import get_current_active_account
 from api.models import Account, ExportJob
 from api.schemas import ExportJobOut
+from api.services.queue import enqueue
 
 router = APIRouter()
 
@@ -30,30 +30,9 @@ class ContactsExportRequest(BaseModel):
     group_id: uuid.UUID | None = None
 
 
-async def _run_export_job(db_factory, job_id: uuid.UUID) -> None:
-    """Placeholder background task for export execution."""
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from api.db import get_db
-    async for db in get_db():
-        result = await db.execute(select(ExportJob).where(ExportJob.id == job_id))
-        job = result.scalar_one_or_none()
-        if job:
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
-            await db.commit()
-            # Placeholder: generate a dummy file path
-            job.status = "completed"
-            job.completed_at = datetime.now(timezone.utc)
-            job.file_path = f"/tmp/export_{job.id}_{job.type}.tmp"
-            job.file_size = 0
-            await db.commit()
-        break
-
-
 @router.post("/emails", response_model=ExportJobOut)
 async def export_emails(
     data: EmailExportRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     account: Account = Depends(get_current_active_account),
 ):
@@ -65,14 +44,18 @@ async def export_emails(
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    background_tasks.add_task(_run_export_job, get_db, job.id)
+    await enqueue(
+        job_type="export",
+        job_id=job.id,
+        account_id=account.id,
+        payload={"subtype": "emails", "mailbox_ids": [str(m) for m in data.mailbox_ids] if data.mailbox_ids else None, "since": data.since.isoformat() if data.since else None},
+    )
     return job
 
 
 @router.post("/calendar", response_model=ExportJobOut)
 async def export_calendar(
     data: CalendarExportRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     account: Account = Depends(get_current_active_account),
 ):
@@ -84,14 +67,18 @@ async def export_calendar(
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    background_tasks.add_task(_run_export_job, get_db, job.id)
+    await enqueue(
+        job_type="export",
+        job_id=job.id,
+        account_id=account.id,
+        payload={"subtype": "calendar", "since": data.since.isoformat() if data.since else None},
+    )
     return job
 
 
 @router.post("/contacts", response_model=ExportJobOut)
 async def export_contacts(
     data: ContactsExportRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     account: Account = Depends(get_current_active_account),
 ):
@@ -103,7 +90,12 @@ async def export_contacts(
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    background_tasks.add_task(_run_export_job, get_db, job.id)
+    await enqueue(
+        job_type="export",
+        job_id=job.id,
+        account_id=account.id,
+        payload={"subtype": "contacts", "group_id": str(data.group_id) if data.group_id else None},
+    )
     return job
 
 

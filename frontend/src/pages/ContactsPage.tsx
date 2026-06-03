@@ -16,16 +16,9 @@ interface Contact {
   created_at: string;
 }
 
-interface ContactGroup {
-  id: string;
-  name: string;
-  created_at: string;
-}
-
 export default function ContactsPage() {
   const { addToast } = useToast();
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [groups, setGroups] = useState<ContactGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -53,12 +46,8 @@ export default function ContactsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [cRes, gRes] = await Promise.all([
-        api.get<Contact[]>("/contacts"),
-        api.get<ContactGroup[]>("/contacts/groups"),
-      ]);
+      const cRes = await api.get<Contact[]>("/contacts");
       setContacts(cRes.data);
-      setGroups(gRes.data);
     } catch (err: any) {
       addToast(err?.response?.data?.detail || "Failed to load contacts", "error");
     } finally {

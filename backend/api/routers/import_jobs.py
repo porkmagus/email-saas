@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,35 +12,14 @@ from api.deps import get_current_active_account
 from api.models import Account, ImportJob
 from api.schemas import ImportJobCreate, ImportJobOut
 from api.services.audit import audit_from_request
+from api.services.queue import enqueue
 
 router = APIRouter()
-
-
-async def _run_import_job(db_factory, job_id: uuid.UUID) -> None:
-    """Placeholder background task for import execution."""
-    # In a real implementation this would connect to the remote IMAP server,
-    # fetch messages, and save them locally. For now we just mark as completed.
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from api.db import get_db
-    async for db in get_db():
-        result = await db.execute(select(ImportJob).where(ImportJob.id == job_id))
-        job = result.scalar_one_or_none()
-        if job:
-            job.status = "running"
-            job.started_at = datetime.now(timezone.utc)
-            await db.commit()
-            # Placeholder: simulate work
-            job.status = "completed"
-            job.completed_at = datetime.now(timezone.utc)
-            job.messages_imported = 0
-            await db.commit()
-        break
 
 
 @router.post("", response_model=ImportJobOut)
 async def create_import_job(
     data: ImportJobCreate,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     account: Account = Depends(get_current_active_account),
 ):
@@ -59,7 +38,18 @@ async def create_import_job(
     await db.commit()
     await db.refresh(job)
 
-    background_tasks.add_task(_run_import_job, get_db, job.id)
+    await enqueue(
+        job_type="import",
+        job_id=job.id,
+        account_id=account.id,
+        payload={
+            "server": data.server,
+            "port": data.port,
+            "username": data.username,
+            "password": data.password,
+            "tls": data.tls,
+        },
+    )
 
     return job
 

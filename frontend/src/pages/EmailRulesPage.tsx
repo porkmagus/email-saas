@@ -6,10 +6,8 @@ import {
   Plus,
   Trash2,
   Loader2,
-  Pencil,
   Check,
   X,
-  ArrowDown,
   ArrowRight,
   Shield,
   Code,
@@ -56,7 +54,6 @@ export default function EmailRulesPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: "",

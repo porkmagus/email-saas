@@ -40,7 +40,6 @@ export function showNotification(title: string, body: string) {
   if (Notification.permission !== "granted") return;
   if (!getDesktopNotificationsEnabled()) return;
   try {
-    // eslint-disable-next-line no-new
     new Notification(title, { body, icon: "/favicon.ico" });
   } catch {
     // ignore

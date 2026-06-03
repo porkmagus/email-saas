@@ -77,7 +77,6 @@ export default function CalendarPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date>(today);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -112,7 +111,6 @@ export default function CalendarPage() {
   const openCreate = (date: Date) => {
     setModalMode("create");
     setSelectedEvent(null);
-    setSelectedDate(date);
     const start = new Date(date);
     start.setHours(9, 0, 0, 0);
     const end = new Date(date);
