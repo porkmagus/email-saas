@@ -1,0 +1,30 @@
+[Unit]
+Description=Email SaaS FastAPI Backend
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+User=email-saas
+Group=email-saas
+WorkingDirectory=/opt/email-saas
+EnvironmentFile=/opt/email-saas/.env
+ExecStart=/opt/email-saas/.venv/bin/uvicorn api.main:app --uds /run/email-saas/api.sock --workers 4 --proxy-headers --forwarded-allow-ips='*'
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=email-saas-api
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/email-saas /var/log/email-saas /run/email-saas
+
+# Runtime directories
+RuntimeDirectory=email-saas
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

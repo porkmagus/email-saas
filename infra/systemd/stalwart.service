@@ -1,0 +1,27 @@
+[Unit]
+Description=Stalwart Mail Server
+After=network.target
+
+[Service]
+Type=simple
+User=stalwart
+Group=stalwart
+WorkingDirectory=/var/lib/stalwart
+ExecStart=/opt/stalwart/stalwart --config /etc/stalwart/stalwart.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stalwart
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/stalwart /var/log/stalwart
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
