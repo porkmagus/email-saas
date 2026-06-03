@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useToast } from "../context/ToastContext";
 import Loading from "../components/Loading";
-import { Mail, Plus, Trash2, Loader2, Pencil, Check, X } from "lucide-react";
+import { Mail, Plus, Trash2, Loader2, Pencil, Check, X, Copy } from "lucide-react";
 
 interface Mailbox {
   id: string;
@@ -285,6 +285,9 @@ export default function MailboxesPage() {
                     <div className="flex items-center justify-end gap-2">
                       <button className="text-muted hover:text-primary" onClick={() => handleEdit(mb)}>
                         <Pencil size={16} />
+                      </button>
+                      <button className="text-muted hover:text-primary" title="Copy address" onClick={() => { navigator.clipboard.writeText(`${mb.local_part}@${mb.domain || mb.domain_id}`); addToast("Copied address", "success"); }}>
+                        <Copy size={16} />
                       </button>
                       <button className="text-danger hover:opacity-80" onClick={() => handleDelete(mb.id)}>
                         <Trash2 size={16} />

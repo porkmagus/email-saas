@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   CheckCircle,
   ListChecks,
+  Plug,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -129,6 +130,10 @@ export default function DashboardPage() {
             <Link to="/mailboxes" className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-surface-alt transition-colors">
               <span className="text-sm font-medium">Create a mailbox</span>
               <ArrowRight size={16} className="text-muted" />
+            </Link>
+            <Link to="/mail-setup" className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-surface-alt transition-colors">
+              <span className="text-sm font-medium">Email client setup</span>
+              <Plug size={16} className="text-muted" />
             </Link>
             <Link to="/tickets" className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-surface-alt transition-colors">
               <span className="text-sm font-medium">Open a support ticket</span>

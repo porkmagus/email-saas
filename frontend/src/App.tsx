@@ -19,6 +19,7 @@ import AdminJobsPage from "./pages/admin/AdminJobsPage";
 import AdminTicketsPage from "./pages/admin/AdminTicketsPage";
 import AdminTicketDetailPage from "./pages/admin/AdminTicketDetailPage";
 import AdminAuditLogPage from "./pages/admin/AdminAuditLogPage";
+import MailSetupPage from "./pages/MailSetupPage";
 import TermsPage from "./pages/TermsPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import AupPage from "./pages/AupPage";
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
         <Route path="/domains" element={<RequireAuth><DomainsPage /></RequireAuth>} />
         <Route path="/mailboxes" element={<RequireAuth><MailboxesPage /></RequireAuth>} />
+        <Route path="/mail-setup" element={<RequireAuth><MailSetupPage /></RequireAuth>} />
         <Route path="/billing" element={<RequireAuth><BillingPage /></RequireAuth>} />
         <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
         <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />

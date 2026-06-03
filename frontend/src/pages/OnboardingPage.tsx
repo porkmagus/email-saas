@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useToast } from "../context/ToastContext";
 import Loading from "../components/Loading";
-import { CheckCircle, Circle, Globe, Mail, ArrowRight } from "lucide-react";
+import { CheckCircle, Circle, Globe, Mail, ArrowRight, Plug } from "lucide-react";
 import { Link } from "react-router-dom";
 
 export default function OnboardingPage() {
@@ -63,6 +63,14 @@ export default function OnboardingPage() {
       icon: Mail,
       link: "/mailboxes",
       done: steps.mailbox_created,
+    },
+    {
+      key: "email_setup",
+      label: "Connect your email",
+      desc: "Get webmail and email client settings.",
+      icon: Plug,
+      link: "/mail-setup",
+      done: steps.mailbox_created && steps.domain_verified,
     },
   ];
 

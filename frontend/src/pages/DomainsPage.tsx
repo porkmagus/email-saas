@@ -245,7 +245,9 @@ export default function DomainsPage() {
                         </button>
                       </div>
                     </div>
-                    <div className="text-xs text-muted">Webmail: {onboarding.webmail_url}</div>
+                    <div className="text-xs text-muted">
+                      Webmail: <a href={onboarding.webmail_url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">{onboarding.webmail_url}</a>
+                    </div>
                   </div>
                 ) : (
                   <p className="text-sm text-muted">No onboarding data available.</p>

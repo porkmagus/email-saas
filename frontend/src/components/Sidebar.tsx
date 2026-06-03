@@ -12,6 +12,7 @@ import {
   Shield,
   Menu,
   X,
+  Plug,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/domains", label: "Domains", icon: Globe },
   { to: "/mailboxes", label: "Mailboxes", icon: Mail },
+  { to: "/mail-setup", label: "Connect", icon: Plug },
   { to: "/billing", label: "Billing", icon: CreditCard },
   { to: "/tickets", label: "Support", icon: HelpCircle },
   { to: "/onboarding", label: "Onboarding", icon: ListChecks },
