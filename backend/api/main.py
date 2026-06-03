@@ -28,6 +28,24 @@ async def lifespan(app: FastAPI):
     # Startup
     async with engine.begin() as conn:
         await conn.run_sync(lambda conn: None)
+    
+    # Production config validation
+    if settings.environment == "production":
+        if not settings.api_key_secret:
+            raise RuntimeError("API_KEY_SECRET is required in production")
+        if not settings.secret_key or len(settings.secret_key) < 32:
+            raise RuntimeError("SECRET_KEY must be at least 32 characters in production")
+        if not settings.stripe_secret_key or settings.stripe_secret_key.startswith("sk_test"):
+            raise RuntimeError("STRIPE_SECRET_KEY must be a live key in production")
+        if not settings.stalwart_api_token:
+            raise RuntimeError("STALWART_API_TOKEN is required in production")
+        if not settings.vps2_public_ip or settings.vps2_public_ip == "1.2.3.4":
+            raise RuntimeError("VPS2_PUBLIC_IP must be set to a real IP in production")
+        if settings.docs_enabled is not False:
+            raise RuntimeError("DOCS_ENABLED must be false in production")
+        if settings.stripe_webhook_secret == "whsec_test":
+            raise RuntimeError("STRIPE_WEBHOOK_SECRET must be a real secret in production")
+    
     yield
     # Shutdown
     await engine.dispose()
@@ -90,25 +108,6 @@ app.include_router(send.router, prefix="/api/v1/send", tags=["send"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(tickets.router, prefix="/api/v1/tickets", tags=["tickets"])
 app.include_router(api_keys.router, prefix="/api/v1/api-keys", tags=["api_keys"])
-
-
-@app.on_event("startup")
-async def validate_production_config():
-    if settings.environment == "production":
-        if not settings.api_key_secret:
-            raise RuntimeError("API_KEY_SECRET is required in production")
-        if not settings.secret_key or len(settings.secret_key) < 32:
-            raise RuntimeError("SECRET_KEY must be at least 32 characters in production")
-        if not settings.stripe_secret_key or settings.stripe_secret_key.startswith("sk_test"):
-            raise RuntimeError("STRIPE_SECRET_KEY must be a live key in production")
-        if not settings.stalwart_api_token:
-            raise RuntimeError("STALWART_API_TOKEN is required in production")
-        if not settings.vps2_public_ip or settings.vps2_public_ip == "1.2.3.4":
-            raise RuntimeError("VPS2_PUBLIC_IP must be set to a real IP in production")
-        if not settings.docs_enabled is False:
-            raise RuntimeError("DOCS_ENABLED must be false in production")
-        if settings.stripe_webhook_secret == "whsec_test":
-            raise RuntimeError("STRIPE_WEBHOOK_SECRET must be a real secret in production")
 
 
 @app.get("/api/v1/health", response_model=dict)

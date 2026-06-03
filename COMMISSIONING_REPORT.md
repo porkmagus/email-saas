@@ -194,7 +194,7 @@ email-saas-frontend:final — OK
 
 - [ ] Provision two Contabo VPS instances with Ubuntu 24.04 LTS
 - [ ] Clone repo to `/opt/email-saas` on both VPSs
-- [ ] Run `ROLE=app ./setup.sh` on VPS-1, `ROLE=mail ./setup.sh` on VPS-2
+- [ ] Run `HOSTNAME=vps1-app ./setup-app.sh` on VPS-1, `HOSTNAME=vps2-mail ./setup-mail.sh` on VPS-2
 - [ ] Configure WireGuard between VPSs
 - [ ] Run `certbot` on both VPSs for SSL certificates
 - [ ] Create `.env` on VPS-1 with all required secrets

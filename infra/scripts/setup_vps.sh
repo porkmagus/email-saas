@@ -38,14 +38,9 @@ apt-get autoremove -y
 PACKAGES="curl wget jq git nano htop ufw fail2ban logrotate restic certbot python3-certbot-nginx unzip"
 
 if [[ "$ROLE" == "app" ]]; then
-    PACKAGES="$PACKAGES postgresql-17 postgresql-client-17 redis-server nodejs npm nginx python3 python3-pip python3-venv"
-    # Add PostgreSQL 17 repo if not present
-    if ! grep -r "pgdg" /etc/apt/sources.list.d/ &>/dev/null; then
-        curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
-        echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-        apt-get update
-        apt-get install -y postgresql-17 postgresql-client-17
-    fi
+    # App server only needs nginx (reverse proxy) and Docker (installed separately)
+    # PostgreSQL, Redis, and Node.js run inside Docker containers
+    PACKAGES="$PACKAGES nginx"
 elif [[ "$ROLE" == "mail" ]]; then
     PACKAGES="$PACKAGES nginx php8.4-fpm php8.4-cli php8.4-curl php8.4-gd php8.4-imap php8.4-intl php8.4-mbstring php8.4-mysql php8.4-xml php8.4-zip php8.4-pspell"
 fi
@@ -163,25 +158,23 @@ mkdir -p /var/log/email-saas
 mkdir -p /opt/email-saas
 mkdir -p /backups/postgresql
 
-# Create service user for API
+# Create service user for API (used by Docker containers)
 id -u email-saas &>/dev/null || useradd -r -s /bin/false -d /opt/email-saas email-saas
 
-# Copy systemd service file for API (VPS-1)
-if [[ "$ROLE" == "app" && -f "$PROJECT_ROOT/infra/systemd/api.service" ]]; then
-    cp "$PROJECT_ROOT/infra/systemd/api.service" /etc/systemd/system/email-saas-api.service
-    systemctl daemon-reload
-    systemctl enable email-saas-api
-fi
-
-# Copy nginx config
+# Copy nginx config (with template substitution for app role)
 if [[ "$ROLE" == "app" && -f "$PROJECT_ROOT/infra/nginx/vps1.conf" ]]; then
-    cp "$PROJECT_ROOT/infra/nginx/vps1.conf" /etc/nginx/sites-available/email-saas
+    # Substitute template variables
+    DOMAIN="${DOMAIN:-example.com}"
+    sed -e "s/{{DOMAIN}}/$DOMAIN/g" "$PROJECT_ROOT/infra/nginx/vps1.conf" > /etc/nginx/sites-available/email-saas
     ln -sf /etc/nginx/sites-available/email-saas /etc/nginx/sites-enabled/email-saas
     rm -f /etc/nginx/sites-enabled/default
 fi
 
 if [[ "$ROLE" == "mail" && -f "$PROJECT_ROOT/infra/nginx/vps2.conf" ]]; then
-    cp "$PROJECT_ROOT/infra/nginx/vps2.conf" /etc/nginx/sites-available/email-saas
+    # Substitute template variables
+    DOMAIN="${DOMAIN:-example.com}"
+    VPS1_WG_IP="${VPS1_WG_IP:-10.0.0.1}"
+    sed -e "s/{{DOMAIN}}/$DOMAIN/g" -e "s/{{VPS1_WG_IP}}/$VPS1_WG_IP/g" "$PROJECT_ROOT/infra/nginx/vps2.conf" > /etc/nginx/sites-available/email-saas
     ln -sf /etc/nginx/sites-available/email-saas /etc/nginx/sites-enabled/email-saas
     rm -f /etc/nginx/sites-enabled/default
 fi

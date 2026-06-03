@@ -20,20 +20,37 @@ ssh-copy-id root@vps2-ip
 ### 2. Run Pushbutton Setup
 
 ```bash
-# On VPS-1 (App)
+# On VPS-1 (App Server)
 ssh root@vps1-ip
 cd /opt
 git clone https://github.com/your-org/email-saas.git
 cd email-saas
-ROLE=app HOSTNAME=vps1-app ./setup.sh
+HOSTNAME=vps1-app DOMAIN=example.com ./setup-app.sh
 
-# On VPS-2 (Mail)
+# On VPS-2 (Mail Server)
 ssh root@vps2-ip
 cd /opt
 git clone https://github.com/your-org/email-saas.git
 cd email-saas
-ROLE=mail HOSTNAME=vps2-mail ./setup.sh
+HOSTNAME=vps2-mail DOMAIN=example.com ./setup-mail.sh
 ```
+
+**What each script does:**
+
+- `setup-app.sh` (VPS-1):
+  - Hardens Ubuntu (UFW, fail2ban, SSH)
+  - Installs Docker, Nginx (host reverse proxy)
+  - Builds React frontend on host (served by Nginx)
+  - Starts Docker Compose: backend + PostgreSQL + Redis
+  - Host Nginx proxies `/api/` to Docker backend
+  - Runs migrations and seeds admin
+
+- `setup-mail.sh` (VPS-2):
+  - Hardens Ubuntu (UFW, fail2ban, SSH)
+  - Installs Nginx, PHP 8.4 FPM
+  - Installs Stalwart Mail Server
+  - Installs Roundcube webmail
+  - Configures host Nginx for Roundcube + Stalwart admin proxy
 
 ### 3. Configure WireGuard VPN
 

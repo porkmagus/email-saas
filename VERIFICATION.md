@@ -131,7 +131,7 @@
 
 | Script | Purpose |
 |--------|---------|
-| `setup.sh` | Pushbutton setup (Docker + local dev) |
+| `setup-app.sh` | Pushbutton setup for VPS-1 app server |
 | `infra/scripts/setup_vps.sh` | Ubuntu 24.04 hardening, packages, firewall |
 | `infra/scripts/setup_wireguard.sh` | VPN tunnel between VPS-1 and VPS-2 |
 | `infra/scripts/install_stalwart.sh` | Install Stalwart 0.16.5 with systemd |
@@ -175,10 +175,10 @@ docker compose exec backend python scripts/seed_admin.py
 ### Production VPS
 ```bash
 # On VPS-1 (Ubuntu 24.04)
-ROLE=app ./setup.sh
+HOSTNAME=vps1-app ./setup-app.sh
 
-# On VPS-2 (Ubuntu 24.04)
-ROLE=mail ./setup.sh
+# VPS-2 (Mail)
+HOSTNAME=vps2-mail ./setup-mail.sh
 ```
 
 ---

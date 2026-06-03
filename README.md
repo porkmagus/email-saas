@@ -25,11 +25,11 @@ See [docs/SETUP.md](docs/SETUP.md) for full step-by-step provisioning.
 The pushbutton setup script:
 
 ```bash
-# On VPS-1 (Ubuntu 24.04)
-ROLE=app ./setup.sh
+# VPS-1 (App)
+HOSTNAME=vps1-app ./setup-app.sh
 
-# On VPS-2 (Ubuntu 24.04)
-ROLE=mail ./setup.sh
+# VPS-2 (Mail)
+HOSTNAME=vps2-mail ./setup-mail.sh
 ```
 
 ## Architecture
@@ -68,7 +68,8 @@ VPS-1 (App)                      VPS-2 (Mail)
 ├── docs/                 Documentation
 ├── docker-compose.yml    Local dev stack
 ├── .env.example          Environment variable template
-└── setup.sh              Pushbutton VPS setup
+├── setup-app.sh          Pushbutton VPS-1 app server setup
+├── setup-mail.sh         Pushbutton VPS-2 mail server setup
 ```
 
 ## Tech Stack

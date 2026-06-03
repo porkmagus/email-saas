@@ -578,7 +578,7 @@ git clone https://github.com/your-org/email-saas.git /opt/email-saas
 cd /opt/email-saas
 
 # 2. Run pushbutton setup
-ROLE=app HOSTNAME=vps1-app ./setup.sh
+HOSTNAME=vps1-app ./setup-app.sh
 
 # 3. Configure environment
 cp .env.example .env
@@ -618,7 +618,7 @@ git clone https://github.com/your-org/email-saas.git /opt/email-saas
 cd /opt/email-saas
 
 # 2. Run pushbutton setup
-ROLE=mail HOSTNAME=vps2-mail ./setup.sh
+HOSTNAME=vps2-mail ./setup-mail.sh
 
 # 3. Install Stalwart
 ./infra/scripts/install_stalwart.sh
