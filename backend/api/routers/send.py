@@ -12,7 +12,7 @@ from api.db import get_db
 from api.deps import get_current_active_account
 from api.models import Account, Domain, Mailbox
 from api.schemas import MessageOut
-from api.services.send_throttle import reserve_send_slot, record_send_event
+from api.services.send_throttle import reserve_send_slot, record_send, record_send_event
 from api.services.abuse_scoring import calculate_abuse_score, enforce_abuse_action
 from api.services.audit import audit_from_request
 
@@ -104,6 +104,14 @@ async def send_email(
         db=db,
         account_id=account.id,
         recipients=[str(addr) for addr in data.to],
+        domain_id=domain_id,
+        mailbox_id=mailbox_id,
+    )
+
+    # Record send for outbound limit tracking
+    await record_send(
+        db=db,
+        account_id=account.id,
         domain_id=domain_id,
         mailbox_id=mailbox_id,
     )

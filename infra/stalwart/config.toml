@@ -1,0 +1,14 @@
+[server]
+hostname = "mail.localhost"
+
+[storage]
+data = "rocksdb:///var/lib/stalwart/data"
+blob = "rocksdb:///var/lib/stalwart/blobs"
+fts = "rocksdb:///var/lib/stalwart/fts"
+lookup = "rocksdb:///var/lib/stalwart/cache"
+
+[authentication]
+fallback-admin = "admin:password123"
+
+[listener]
+http = "0.0.0.0:8080"

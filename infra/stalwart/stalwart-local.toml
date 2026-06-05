@@ -1,0 +1,51 @@
+# Stalwart Mail Server — Local Docker Dev Config
+# Generated for hamcult.com testing
+
+[server]
+hostname = "mail.hamcult.com"
+
+[storage]
+store = "postgresql"
+host = "postgres"
+port = 5432
+database = "email_saas"
+user = "email_saas"
+password = "email_saas_dev"
+use-tls = false
+
+[directory]
+type = "internal"
+
+[admin]
+name = "admin@hamcult.com"
+secret = "BligpG6zJ8msRoDD"
+
+# Management API — accessible from Docker network
+[api]
+bind = "0.0.0.0:8080"
+
+[api.access]
+allow = ["0.0.0.0/0"]
+
+# Listeners (all ports)
+[smtp]
+port = 25
+
+[submission]
+port = 587
+
+[smtps]
+port = 465
+
+[imap]
+port = 143
+
+[imaps]
+port = 993
+
+[sieve]
+port = 4190
+
+# DKIM
+[signature]
+rsa = "hamcult"

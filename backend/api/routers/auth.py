@@ -20,7 +20,7 @@ from api.deps import (
     verify_password,
     maybe_account,
 )
-from api.models import Account, AccountRole, AccountStatus, PlanTier, WebmailToken
+from api.models import Account, AccountRole, AccountStatus, PlanTier, LoginLog, Session, WebmailToken
 from api.schemas import (
     ErrorOut,
     MessageOut,
@@ -89,6 +89,16 @@ async def login(
     result = await db.execute(select(Account).where(Account.email == data.email))
     account = result.scalar_one_or_none()
     if not account or not verify_password(data.password, account.password_hash):
+        # Log failed login attempt
+        log = LoginLog(
+            id=uuid.uuid4(),
+            account_id=account.id if account else None,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            success=False,
+        )
+        db.add(log)
+        await db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if account.totp_enabled:
@@ -101,6 +111,28 @@ async def login(
         return {"temp_token": temp_token, "totp_required": True}
 
     token = create_access_token({"sub": str(account.id)})
+    # Decode to get jti for session tracking
+    token_payload = decode_token(token)
+    jti = token_payload.get("jti", str(uuid.uuid4()))
+    session = Session(
+        id=uuid.uuid4(),
+        account_id=account.id,
+        token_jti=jti,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes),
+    )
+    db.add(session)
+    # Log successful login
+    log = LoginLog(
+        id=uuid.uuid4(),
+        account_id=account.id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        success=True,
+    )
+    db.add(log)
+    await db.commit()
     await redis.setex(f"session:{account.id}:access", settings.access_token_expire_minutes * 60, "active")
     await audit_from_request(
         request, "login", "account", str(account.id), account.id, account.id, metadata={"email": account.email}
@@ -131,6 +163,27 @@ async def login_totp(
     if not totp.verify(code, valid_window=1):
         raise HTTPException(status_code=401, detail="Invalid TOTP code")
     token = create_access_token({"sub": str(account.id)})
+    token_payload = decode_token(token)
+    jti = token_payload.get("jti", str(uuid.uuid4()))
+    session = Session(
+        id=uuid.uuid4(),
+        account_id=account.id,
+        token_jti=jti,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes),
+    )
+    db.add(session)
+    # Log successful TOTP login
+    log = LoginLog(
+        id=uuid.uuid4(),
+        account_id=account.id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        success=True,
+    )
+    db.add(log)
+    await db.commit()
     await redis.setex(f"session:{account.id}:access", settings.access_token_expire_minutes * 60, "active")
     await audit_from_request(
         request, "login_totp", "account", str(account.id), account.id, account.id, metadata={"email": account.email}
@@ -262,6 +315,27 @@ async def totp_recovery(
     account.recovery_codes = [c for c in account.recovery_codes if c != provided_hash]
     await db.commit()
     token = create_access_token({"sub": str(account.id)})
+    token_payload = decode_token(token)
+    jti = token_payload.get("jti", str(uuid.uuid4()))
+    session = Session(
+        id=uuid.uuid4(),
+        account_id=account.id,
+        token_jti=jti,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes),
+    )
+    db.add(session)
+    # Log successful TOTP recovery login
+    log = LoginLog(
+        id=uuid.uuid4(),
+        account_id=account.id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        success=True,
+    )
+    db.add(log)
+    await db.commit()
     await redis.setex(
         f"session:{account.id}:access",
         settings.access_token_expire_minutes * 60,

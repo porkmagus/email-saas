@@ -81,8 +81,88 @@ services:
     networks:
       - email_saas
 
-  # Frontend is served by host nginx (built in setup-app.sh)
-  # No frontend container needed in production
+  # Stalwart Mail Server — local development
+  # Production: See docs/SETUP.md for production deployment
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    container_name: email_saas_stalwart
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"   # HTTP admin / JMAP
+      - "127.0.0.1:25:25"       # SMTP
+      - "127.0.0.1:587:587"     # SMTP submission
+      - "127.0.0.1:465:465"     # SMTP TLS
+      - "127.0.0.1:143:143"     # IMAP
+      - "127.0.0.1:993:993"     # IMAP TLS
+      - "127.0.0.1:4190:4190"   # Sieve
+    volumes:
+      - stalwart_data:/opt/stalwart-mail
+      - ./infra/stalwart/config.json:/etc/stalwart/config.json:ro
+    entrypoint: ["/usr/local/bin/stalwart"]
+    command: ["--config", "/etc/stalwart/config.json"]
+    networks:
+      - email_saas
+
+  # Frontend served by Nginx
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: email_saas_frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:80"
+    networks:
+      - email_saas
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Bulwark Webmail — JMAP-native modern webmail for Stalwart
+  bulwark:
+    image: ghcr.io/bulwarkmail/webmail:latest
+    container_name: email_saas_bulwark
+    restart: unless-stopped
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      JMAP_SERVER_URL: http://stalwart:8080
+      ALLOW_CUSTOM_JMAP_ENDPOINT: "true"
+      STALWART_FEATURES: "true"
+      LOG_FORMAT: text
+      LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:3002:3000"
+    networks:
+      - email_saas
+    depends_on:
+      - stalwart
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  # roundcube:
+  #   image: roundcube/roundcubemail:latest
+  #   container_name: email_saas_roundcube
+  #   restart: unless-stopped
+  #   environment:
+  #     ROUNDCUBEMAIL_DEFAULT_HOST: stalwart
+  #     ROUNDCUBEMAIL_DEFAULT_PORT: 143
+  #     ROUNDCUBEMAIL_SMTP_SERVER: stalwart
+  #     ROUNDCUBEMAIL_SMTP_PORT: 587
+  #   ports:
+  #     - "127.0.0.1:8081:80"
+  #   networks:
+  #     - email_saas
+  #   depends_on:
+  #     - stalwart
 
   # Optional: local Certbot for SSL (dev-only, use real VPS for production)
   certbot:
@@ -101,6 +181,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  stalwart_data:
     driver: local
   certbot_data:
     driver: local

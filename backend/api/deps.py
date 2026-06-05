@@ -39,6 +39,7 @@ def create_access_token(
     token_type: str = "access",
 ) -> str:
     to_encode = data.copy()
+    jti = str(uuid.uuid4())
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=(
             expires_delta_minutes
@@ -46,7 +47,7 @@ def create_access_token(
             else settings.access_token_expire_minutes
         )
     )
-    to_encode.update({"exp": expire, "type": token_type})
+    to_encode.update({"exp": expire, "type": token_type, "jti": jti})
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 

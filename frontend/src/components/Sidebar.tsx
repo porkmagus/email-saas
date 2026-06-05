@@ -1,6 +1,5 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useTheme } from "../context/ThemeContext";
 import {
   LayoutDashboard,
   Globe,
@@ -27,8 +26,6 @@ import {
   LogIn,
   ShieldAlert,
   Send,
-  Moon,
-  Sun,
   Database,
   Download,
 } from "lucide-react";
@@ -45,7 +42,6 @@ const navItems = [
   { to: "/email-rules", label: "Email rules", icon: ShieldCheck },
   { to: "/vacation-response", label: "Vacation", icon: Umbrella },
   { to: "/outbox", label: "Outbox", icon: Send },
-  { to: "/snooze", label: "Snooze", icon: Moon },
   { to: "/app-passwords", label: "App passwords", icon: KeyRound },
   { to: "/passkeys", label: "Passkeys", icon: Fingerprint },
   { to: "/files", label: "Files", icon: FileText },
@@ -63,7 +59,6 @@ const navItems = [
 
 export default function Sidebar() {
   const { account, logout, isAdmin } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   if (!account) return null;
@@ -71,39 +66,34 @@ export default function Sidebar() {
   return (
     <>
       <button
-        className="lg:hidden fixed top-3 left-3 z-40 p-2 rounded-lg bg-surface border border-border shadow-sm"
+        className="lg:hidden fixed top-3 left-3 z-40 p-2 rounded-lg bg-[#0f172a] border border-white/10 shadow-lg"
         onClick={() => setMobileOpen(true)}
       >
-        <Menu size={20} />
+        <Menu size={20} className="text-white" />
       </button>
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/30 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
       <aside
-        className={`fixed lg:static top-0 left-0 z-50 h-full w-60 bg-surface border-r border-border flex flex-col transition-transform ${
+        className={`fixed lg:static top-0 left-0 z-50 h-full w-60 bg-[#0f172a] border-r border-white/5 flex flex-col transition-transform ${
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="flex items-center justify-between px-4 py-4 border-b border-border">
-          <span className="font-semibold text-lg">Email SaaS</span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleTheme}
-              className="p-1.5 rounded-md hover:bg-surface-alt transition-colors"
-              aria-label="Toggle theme"
-              title="Toggle theme"
-            >
-              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button className="lg:hidden" onClick={() => setMobileOpen(false)}>
-              <X size={20} />
-            </button>
+        <div className="flex items-center justify-between px-4 py-4 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-xs">N</span>
+            </div>
+            <span className="font-semibold text-lg text-white">NexusMail</span>
           </div>
+          <button className="lg:hidden text-white" onClick={() => setMobileOpen(false)}>
+            <X size={20} />
+          </button>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -112,8 +102,8 @@ export default function Sidebar() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isActive
-                    ? "bg-accent/10 text-accent"
-                    : "text-muted hover:text-primary hover:bg-surface-alt"
+                    ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                    : "text-slate-400 hover:text-white hover:bg-white/5"
                 }`
               }
             >
@@ -128,8 +118,8 @@ export default function Sidebar() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isActive
-                    ? "bg-accent/10 text-accent"
-                    : "text-muted hover:text-primary hover:bg-surface-alt"
+                    ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                    : "text-slate-400 hover:text-white hover:bg-white/5"
                 }`
               }
             >
@@ -138,12 +128,12 @@ export default function Sidebar() {
             </NavLink>
           )}
         </nav>
-        <div className="px-4 py-4 border-t border-border">
-          <div className="text-sm font-medium truncate">{account.email}</div>
-          <div className="text-xs text-muted capitalize">{account.plan} plan</div>
+        <div className="px-4 py-4 border-t border-white/5">
+          <div className="text-sm font-medium text-white truncate">{account.email}</div>
+          <div className="text-xs text-slate-500 capitalize">{account.plan} plan</div>
           <button
             onClick={logout}
-            className="mt-3 flex items-center gap-2 text-sm text-danger hover:opacity-80"
+            className="mt-3 flex items-center gap-2 text-sm text-red-400 hover:text-red-300 transition-colors"
           >
             <LogOut size={16} />
             Log out

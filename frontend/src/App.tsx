@@ -41,6 +41,8 @@ import StatusPage from "./pages/StatusPage";
 import DNSGuidePage from "./pages/DNSGuidePage";
 import ImportPage from "./pages/ImportPage";
 import ExportPage from "./pages/ExportPage";
+import FaqPage from "./pages/FaqPage";
+import PricingPage from "./pages/PricingPage";
 import Layout from "./components/Layout";
 import AdminLayout from "./components/AdminLayout";
 import Loading from "./components/Loading";
@@ -71,6 +73,8 @@ export default function App() {
       <Route path="/tos" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/aup" element={<AupPage />} />
+      <Route path="/faq" element={<FaqPage />} />
+      <Route path="/pricing" element={<PricingPage />} />
       <Route path="/status" element={<StatusPage />} />
       <Route element={<Layout />}>
         <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />

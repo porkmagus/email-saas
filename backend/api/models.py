@@ -253,7 +253,7 @@ class Domain(Base):
 
     account: Mapped["Account"] = relationship("Account", back_populates="domains")
     mailboxes: Mapped[list["Mailbox"]] = relationship(
-        "Mailbox", back_populates="domain", lazy="selectin", cascade="all, delete-orphan",
+        "Mailbox", back_populates="domain_rel", lazy="selectin", cascade="all, delete-orphan",
         foreign_keys="Mailbox.domain_id"
     )
     aliases: Mapped[list["Alias"]] = relationship(
@@ -292,7 +292,11 @@ class Mailbox(Base):
     )
 
     account: Mapped["Account"] = relationship("Account", back_populates="mailboxes")
-    domain: Mapped["Domain"] = relationship("Domain", back_populates="mailboxes", foreign_keys="Mailbox.domain_id")
+    domain_rel: Mapped["Domain"] = relationship("Domain", back_populates="mailboxes", foreign_keys="Mailbox.domain_id")
+
+    @property
+    def domain(self) -> str | None:
+        return self.domain_rel.domain if self.domain_rel else None
 
 
 class Subscription(Base):
@@ -346,6 +350,8 @@ class ProvisioningJob(Base):
         Enum(JobStatus, name="job_status"), default=JobStatus.pending, nullable=False
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_retries: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

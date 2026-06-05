@@ -1,0 +1,13 @@
+{
+  "@type": "PostgreSql",
+  "host": "postgres",
+  "port": 5432,
+  "database": "email_saas",
+  "authUsername": "email_saas",
+  "authSecret": {
+    "@type": "Value",
+    "secret": "email_saas_dev"
+  },
+  "useTls": false,
+  "timeout": 15000
+}
